@@ -85,8 +85,9 @@ npm run dev -- --port 5173
 
 ```
 campus-twin/
-├─ backend/          采集+检测服务（FastAPI :8000，96 tests）
-├─ agent/            AI 运维 Agent（FastAPI :8100，67 tests，20 场景评测）
+├─ backend/          采集+检测服务（FastAPI :8000，171 tests）
+├─ agent/            AI 运维 Agent（FastAPI :8100，256 tests，38 场景评测）
+├─ feishu-bot/      飞书机器人（长连接双向接入，Node.js，无需公网）
 ├─ frontend/         Three.js 3D 大屏（Vite :5173）
 ├─ configs/          各网络设备配置（Core-3650 / SW-* / Router-4331）
 ├─ docs/             设计/实验/演示/总结文档
@@ -109,6 +110,7 @@ campus-twin/
 | [W9 Agent 扩展设计](docs/W9-Agent扩展设计.md) | 多 Agent / 场景自动化 / 数据管理契约 |
 | [W10 路径追踪告警聚合设计](docs/W10-路径追踪告警聚合设计.md) | 路径追踪 / 告警根因分组 / Webhook / SNMP 驱动契约 |
 | [MCP 接入说明](docs/MCP接入说明.md) | MCP Server（对外）+ MCP Client 桥接（对内）架构、配置、安全、验证 |
+| [飞书机器人接入](docs/飞书机器人接入.md) | 长连接双向接入：飞书里问 AI/查网络；白名单+限流+去重；写操作不执行 |
 | [作品集截图](docs/作品集.md) | 18 张真实运行截图（PT 拓扑/大屏/AI/路径追踪/MCP/架构图/评测数据）+ 使用建议 |
 | [作品集 PDF](docs/校园网络数字孪生运维平台-作品集.pdf) | 15 页深色主题作品集（PPTX 源文件同目录），面试投屏/附件可直接用 |
 | [进度交接与明日计划](docs/进度交接与明日计划.md) | 阶段进度与待办 |
@@ -129,3 +131,4 @@ campus-twin/
 | **W11 LangGraph 编排引擎** | ✅ StateGraph 节点+条件边、SqliteSaver checkpointer（多轮续聊/重启可恢复）、`interrupt()` 人机中断（写操作暂停图→确认后 resume）；classic 引擎可一键回退（Agent 192 tests，两引擎评测均 100%） |
 | **W12 SSE 流式 + 轻量 RAG** | ✅ `/api/chat/stream` 逐 token SSE（真实 LLM 2600+ token 事件）+ 前端逐字渲染/停止生成；18 知识块 BM25-lite 检索 + `[K1]` 引用 + 无命中不编造（Agent 207 tests，38 场景 100%） |
 | **W13 MCP 双向集成** | ✅ 自建 **MCP Server**（10 tools / 4 resources / 3 prompts，Claude Desktop/Cursor 可接入）+ **MCP Client 桥接**（filesystem/memory 23 工具 → Agent）；256 Agent tests，只读白名单 + 审计 |
+| **W14 飞书机器人** | ✅ 长连接双向接入：飞书群里「状态 / 告警 / 路径 / 读配置 / 任意问答」；白名单 + 限流 + 去重 + 写操作只提示不执行；19 项离线自测通过 |

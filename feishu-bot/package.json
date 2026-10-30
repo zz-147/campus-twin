@@ -1,0 +1,14 @@
+﻿{
+  "name": "campus-twin-feishu-bot",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "飞书机器人双向接入：在飞书里直接问 AI / 查校园网络状态（长连接模式，无需公网）",
+  "scripts": {
+    "start": "node src/bot.mjs",
+    "self-test": "node src/self-test.mjs"
+  },
+  "dependencies": {
+    "@larksuiteoapi/node-sdk": "^1.51.0"
+  }
+}

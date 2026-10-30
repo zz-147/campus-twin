@@ -1,0 +1,12 @@
+# 飞书凭证（绝不提交）
+.env
+*.env
+!**/.env.example
+
+# 依赖与日志
+node_modules/
+logs/
+*.log
+
+# 临时
+*.tmp
