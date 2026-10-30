@@ -284,13 +284,13 @@ footer(s, 14)
 s = new_slide()
 title_block(s, "14 · RAG 评测闭环（W15）", "56 篇文档 / 107 chunk / 3 种切分 / 48 query / 4 种检索配置")
 picture_fit(s, SHOTS / "16-RAG评测闭环.png", 0.6, 1.15, 12.1, 5.6)
-footer(s)
+footer(s, 15)
 
 # ---------------- Slide W15-B: 可靠性 / 可观测性 / 部署 ----------------
 s = new_slide()
 title_block(s, "15 · 可靠性 / 可观测性 / 可部署性（W15）", "故障注入 · 断点恢复 · trace API · Docker + GitHub Actions CI")
 picture_fit(s, SHOTS / "17-可靠性与可观测性.png", 0.6, 1.15, 12.1, 5.6)
-footer(s)
+footer(s, 16)
 
 # ---------------- Slide 15: 结尾 ----------------
 s = new_slide()
@@ -315,7 +315,7 @@ for k, v in data:
     textbox(s, 8.65, y, 4.0, 0.3, v, size=11.5, color=TEXT, bold=True)
     y += 0.52
 textbox(s, 0.9, 6.6, 11.6, 0.3, "个人项目 · 独立开发 · 2026.10", size=11, color=MUTED)
-footer(s, 15)
+footer(s, 17)
 
 OUT_PPTX.parent.mkdir(parents=True, exist_ok=True)
 prs.save(OUT_PPTX)
