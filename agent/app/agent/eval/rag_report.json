@@ -1,0 +1,210 @@
+{
+  "generated_at": "2026-10-30T23:03:45",
+  "engine": "pure-stdlib-hash-embedding-bm25-rrf-rerank",
+  "corpus": {
+    "documents": 56,
+    "default_chunks": 107,
+    "strategies": {
+      "fixed": {
+        "count": 94,
+        "avg_length": 165.2,
+        "min_length": 2,
+        "max_length": 240
+      },
+      "section": {
+        "count": 107,
+        "avg_length": 132.9,
+        "min_length": 47,
+        "max_length": 483
+      },
+      "semantic": {
+        "count": 123,
+        "avg_length": 142.7,
+        "min_length": 55,
+        "max_length": 316
+      }
+    }
+  },
+  "queries": {
+    "count": 48,
+    "categories": [
+      "MCP",
+      "拓扑",
+      "故障",
+      "约束",
+      "评测",
+      "配置"
+    ]
+  },
+  "top_k": 5,
+  "embedding": {
+    "type": "feature_hashing",
+    "dim": 384,
+    "neural": false,
+    "reason": "本机 pip/代理受限，无法安装 torch/sentence-transformers/chromadb/faiss，且不能联网下载模型；接口已预留 Chroma/FAISS/BGE"
+  },
+  "strategies": {
+    "fixed": {
+      "stats": {
+        "count": 94,
+        "avg_length": 165.2,
+        "min_length": 2,
+        "max_length": 240
+      },
+      "configs": {
+        "bm25": {
+          "recall_at_5": 0.9167,
+          "mrr": 0.7656,
+          "citation_precision": 0.2417,
+          "citation_traceability": 1.0,
+          "faithfulness": 0.6541,
+          "queries": 48
+        },
+        "vector": {
+          "recall_at_5": 0.8333,
+          "mrr": 0.6455,
+          "citation_precision": 0.2083,
+          "citation_traceability": 1.0,
+          "faithfulness": 0.6269,
+          "queries": 48
+        },
+        "hybrid": {
+          "recall_at_5": 0.9167,
+          "mrr": 0.7333,
+          "citation_precision": 0.2333,
+          "citation_traceability": 1.0,
+          "faithfulness": 0.6455,
+          "queries": 48
+        },
+        "hybrid_rerank": {
+          "recall_at_5": 0.9167,
+          "mrr": 0.7569,
+          "citation_precision": 0.2417,
+          "citation_traceability": 1.0,
+          "faithfulness": 0.6478,
+          "queries": 48
+        }
+      }
+    },
+    "section": {
+      "stats": {
+        "count": 107,
+        "avg_length": 132.9,
+        "min_length": 47,
+        "max_length": 483
+      },
+      "configs": {
+        "bm25": {
+          "recall_at_5": 0.9375,
+          "mrr": 0.7431,
+          "citation_precision": 0.1875,
+          "citation_traceability": 1.0,
+          "faithfulness": 0.6482,
+          "queries": 48
+        },
+        "vector": {
+          "recall_at_5": 0.9583,
+          "mrr": 0.7715,
+          "citation_precision": 0.1917,
+          "citation_traceability": 1.0,
+          "faithfulness": 0.6427,
+          "queries": 48
+        },
+        "hybrid": {
+          "recall_at_5": 1.0,
+          "mrr": 0.8003,
+          "citation_precision": 0.2,
+          "citation_traceability": 1.0,
+          "faithfulness": 0.6618,
+          "queries": 48
+        },
+        "hybrid_rerank": {
+          "recall_at_5": 1.0,
+          "mrr": 0.7733,
+          "citation_precision": 0.2,
+          "citation_traceability": 1.0,
+          "faithfulness": 0.6639,
+          "queries": 48
+        }
+      }
+    },
+    "semantic": {
+      "stats": {
+        "count": 123,
+        "avg_length": 142.7,
+        "min_length": 55,
+        "max_length": 316
+      },
+      "configs": {
+        "bm25": {
+          "recall_at_5": 1.0,
+          "mrr": 0.8601,
+          "citation_precision": 0.3458,
+          "citation_traceability": 1.0,
+          "faithfulness": 0.6642,
+          "queries": 48
+        },
+        "vector": {
+          "recall_at_5": 0.9792,
+          "mrr": 0.8722,
+          "citation_precision": 0.3083,
+          "citation_traceability": 1.0,
+          "faithfulness": 0.6435,
+          "queries": 48
+        },
+        "hybrid": {
+          "recall_at_5": 1.0,
+          "mrr": 0.8767,
+          "citation_precision": 0.325,
+          "citation_traceability": 1.0,
+          "faithfulness": 0.6567,
+          "queries": 48
+        },
+        "hybrid_rerank": {
+          "recall_at_5": 1.0,
+          "mrr": 0.8611,
+          "citation_precision": 0.3333,
+          "citation_traceability": 1.0,
+          "faithfulness": 0.6597,
+          "queries": 48
+        }
+      }
+    }
+  },
+  "best_strategy": "semantic",
+  "configs": {
+    "bm25": {
+      "recall_at_5": 1.0,
+      "mrr": 0.8601,
+      "citation_precision": 0.3458,
+      "citation_traceability": 1.0,
+      "faithfulness": 0.6642,
+      "queries": 48
+    },
+    "vector": {
+      "recall_at_5": 0.9792,
+      "mrr": 0.8722,
+      "citation_precision": 0.3083,
+      "citation_traceability": 1.0,
+      "faithfulness": 0.6435,
+      "queries": 48
+    },
+    "hybrid": {
+      "recall_at_5": 1.0,
+      "mrr": 0.8767,
+      "citation_precision": 0.325,
+      "citation_traceability": 1.0,
+      "faithfulness": 0.6567,
+      "queries": 48
+    },
+    "hybrid_rerank": {
+      "recall_at_5": 1.0,
+      "mrr": 0.8611,
+      "citation_precision": 0.3333,
+      "citation_traceability": 1.0,
+      "faithfulness": 0.6597,
+      "queries": 48
+    }
+  },
+  "elapsed_ms": 1531.7
+}

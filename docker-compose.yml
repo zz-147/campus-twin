@@ -1,0 +1,158 @@
+# ============================================================================
+# Campus Twin 一键启动（Docker Compose）
+# ----------------------------------------------------------------------------
+# 本机未安装 Docker：本文件仅通过静态校验（YAML 解析 / 路径 / 端口 / 依赖），
+# **未在本机执行 docker compose up 实测**，详见 docs/部署与CI.md。
+#
+# 用法：
+#   docker compose up -d --build
+#   docker compose ps / logs -f backend
+#   浏览器打开 http://127.0.0.1:5173/
+#
+# 端口（全部只绑定宿主机 127.0.0.1，避免暴露到局域网）：
+#   8000 backend / 8100 agent / 5173 frontend / 8200 mcp_bridge
+#
+# 密钥：不写任何真实密钥。LLM key / NC 口令通过同名环境变量或根目录 .env 注入
+#       （.env 已被 .gitignore 排除）；默认 LLM_PROVIDER=mock 可离线演示。
+#
+# PT NC 不在容器内：PT Network Controller 只监听宿主 127.0.0.1:58000，
+# 容器内后端默认无法访问；默认 DRIVER=simulator 保证 compose 可独立跑通，
+# 真实 NC 采集请在本机直跑 backend（见 docs/部署与CI.md「PT NC 与容器边界」）。
+# ============================================================================
+name: campus-twin
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: campus-twin/backend:local
+    ports:
+      - "127.0.0.1:8000:8000"
+    environment:
+      # 容器内默认使用仿真驱动；真实 NC 见 docs/部署与CI.md（PT NC 仅 localhost）
+      DRIVER: ${DRIVER:-simulator}
+      NC_BASE_URL: ${NC_BASE_URL:-http://host.docker.internal:58000/api/v1}
+      NC_USERNAME: ${NC_USERNAME:-admin}
+      NC_PASSWORD: ${NC_PASSWORD:-cisco}
+      DB_PATH: /app/data/campus_twin.db
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      POLL_INTERVAL: ${POLL_INTERVAL:-5}
+    volumes:
+      - backend_data:/app/data
+    # Linux Docker 下让 host.docker.internal 可解析（Docker Desktop 自动支持）
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=3)"
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+
+  agent:
+    build:
+      context: ./agent
+      dockerfile: Dockerfile
+    image: campus-twin/agent:local
+    ports:
+      - "127.0.0.1:8100:8100"
+    environment:
+      BACKEND_BASE_URL: http://backend:8000
+      AGENT_DATA_SOURCE: ${AGENT_DATA_SOURCE:-http}
+      AGENT_ENGINE: ${AGENT_ENGINE:-langgraph}
+      # 默认 mock（离线可跑）；真实模型通过 .env / shell 环境变量注入，不写密钥
+      LLM_PROVIDER: ${LLM_PROVIDER:-mock}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_MODEL: ${LLM_MODEL:-}
+      AGENT_API_HOST: 0.0.0.0
+      AGENT_API_PORT: "8100"
+      AGENT_DB_PATH: /app/data/agent.db
+      AGENT_GRAPH_DB_PATH: /app/data/graph.db
+      AGENT_LOG_LEVEL: ${AGENT_LOG_LEVEL:-INFO}
+      MCP_BRIDGE_BASE: http://mcp_bridge:8200
+      MCP_BRIDGE_TIMEOUT_S: "5"
+    volumes:
+      - agent_data:/app/data
+    depends_on:
+      backend:
+        condition: service_healthy
+      mcp_bridge:
+        condition: service_started
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8100/api/health', timeout=3)"
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+  mcp_bridge:
+    build:
+      context: ./mcp_bridge
+      dockerfile: Dockerfile
+    image: campus-twin/mcp-bridge:local
+    ports:
+      - "127.0.0.1:8200:8200"
+    environment:
+      MCP_BRIDGE_CONFIG: /app/config.json
+      NPM_CONFIG_REGISTRY: ${NPM_CONFIG_REGISTRY:-https://registry.npmmirror.com}
+    volumes:
+      # filesystem MCP server 的只读白名单目录（与 config.json 改写后的路径一致）
+      - ./configs:/app/configs:ro
+      - ./docs:/app/docs:ro
+      - bridge_data:/app/data
+      - bridge_logs:/app/logs
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8200/health', timeout=3)"
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 120s
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        # 浏览器侧访问地址：宿主机端口映射后的 127.0.0.1
+        VITE_API_BASE: ${VITE_API_BASE:-http://127.0.0.1:8000}
+        VITE_AGENT_BASE: ${VITE_AGENT_BASE:-http://127.0.0.1:8100}
+    image: campus-twin/frontend:local
+    ports:
+      - "127.0.0.1:5173:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+      agent:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - "wget -q -O /dev/null http://127.0.0.1/ || exit 1"
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+volumes:
+  backend_data:
+  agent_data:
+  bridge_data:
+  bridge_logs:

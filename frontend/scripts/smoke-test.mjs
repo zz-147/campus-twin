@@ -641,7 +641,21 @@ async function runLiveW10Checks(cdp) {
     dest.value = '192.168.50.10';
     document.getElementById('path-trace-btn').click();
   })()`);
-  if (pathDoc) {
+  const livePathUsable = Boolean(
+    pathDoc &&
+      pathDoc.ok !== false &&
+      Array.isArray(pathDoc.hops) &&
+      pathDoc.hops.length >= 2 &&
+      String(pathDoc.trace_status || 'complete').toLowerCase() !== 'failed',
+  );
+  if (pathDoc && !livePathUsable) {
+    log(
+      `  [INFO] 后端 /api/path-trace 当前不可用（NC 可能离线）：${String(
+        pathDoc.error || pathDoc.trace_status || '',
+      ).slice(0, 80)}，改为校验前端错误提示`,
+    );
+  }
+  if (livePathUsable) {
     await cdp.waitFor(
       `window.__campusTwin.scene.getPathStats().active === true`,
       60000,
@@ -677,21 +691,28 @@ async function runLiveW10Checks(cdp) {
   } else {
     await cdp.waitFor(
       `((document.getElementById('path-status')?.textContent || '').includes('未就绪') ||
-        (document.getElementById('path-status')?.textContent || '').includes('失败'))`,
-      15000,
-      '路径追踪接口未就绪时未显示中文降级提示',
+        (document.getElementById('path-status')?.textContent || '').includes('失败') ||
+        (document.getElementById('path-status')?.textContent || '').includes('不可达') ||
+        (document.getElementById('path-status')?.textContent || '').includes('错误') ||
+        (document.getElementById('path-status')?.textContent || '').includes('超时'))`,
+      60000,
+      '路径追踪服务不可用时未显示中文错误/降级提示',
     );
     const degraded = await cdp.evaluate(`(() => ({
       status: document.getElementById('path-status')?.textContent || '',
       runtimeError: document.getElementById('runtime-error')?.textContent || '',
-      alertCount: document.querySelectorAll('#alerts-list .alert-item').length,
+      sceneActive: window.__campusTwin.scene.getPathStats().active,
     }))()`);
     check(
-      /未就绪|失败/.test(degraded.status),
-      `路径追踪接口未就绪时显示中文降级提示（${degraded.status.slice(0, 50)}）`,
+      /未就绪|失败|不可达|错误|超时/.test(degraded.status),
+      `路径追踪服务不可用时显示中文错误提示（${degraded.status.slice(0, 60)}）`,
       `路径降级提示异常：${degraded.status}`,
     );
-    check(degraded.runtimeError === '', '路径追踪接口未就绪不产生运行时错误', `运行时错误：${degraded.runtimeError}`);
+    check(
+      degraded.sceneActive === false && degraded.runtimeError === '',
+      '路径追踪失败不产生 3D 残留、不产生运行时错误',
+      `路径失败状态异常：${JSON.stringify(degraded)}`,
+    );
   }
 
   // ---- 告警根因分组 ----
@@ -1077,6 +1098,300 @@ async function runLiveStreamingChecks(cdp) {
 }
 
 /**
+ * W15 冒烟（契约 Mock）：可观测性页签 —— 指标卡 / trace 列表与展开 / RAG 评测卡 / 按会话过滤 / 404 降级。
+ */
+async function runW15Checks(cdp) {
+  const agentBase = W9_AGENT;
+  log('');
+  log('—— W15：可观测性页签（metrics / traces / RAG，契约 Mock）——');
+  const setW15Mode = (mode) =>
+    fetch(`${agentBase}/__mock/w15_mode`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode }),
+    });
+  await setW15Mode('ok');
+  // 收起新设备提示条，避免遮挡可观测性截图
+  await cdp.evaluate(`(() => {
+    const banner = document.getElementById('new-device-banner');
+    if (banner && !banner.classList.contains('hidden') && !banner.classList.contains('collapsed')) {
+      document.getElementById('new-device-collapse')?.click();
+    }
+  })()`);
+  await sleep(250);
+
+  await cdp.evaluate(`document.getElementById('tab-obs').click()`);
+  await cdp.waitFor(`document.querySelectorAll('.obs-trace').length >= 10`, 20000, '可观测性 trace 列表未加载');
+  await sleep(700);
+  const obs = await cdp.evaluate(`(() => {
+    const metric = (id) => ({
+      value: document.querySelector('#' + id + ' .obs-metric-value')?.textContent || '',
+      sub: document.querySelector('#' + id + ' .obs-metric-sub')?.textContent || '',
+      available: document.querySelector('#' + id)?.classList.contains('available'),
+    });
+    return {
+      paneActive: document.getElementById('pane-obs')?.classList.contains('active'),
+      status: document.getElementById('obs-status')?.textContent || '',
+      latency: metric('obs-metric-latency'),
+      errorRate: metric('obs-metric-error-rate'),
+      tokens: metric('obs-metric-tokens'),
+      traceRows: document.querySelectorAll('.obs-trace').length,
+      badRows: document.querySelectorAll('.obs-trace.bad').length,
+      firstRow: document.querySelector('.obs-trace-head')?.textContent?.replace(/[\\s]+/g, ' ').trim() || '',
+      ragVisible: document.getElementById('obs-rag')
+        ? !document.getElementById('obs-rag').classList.contains('hidden')
+        : false,
+      ragItems: [...document.querySelectorAll('.obs-rag-item')].map((node) =>
+        node.textContent.replace(/[\\s]+/g, ' ').trim(),
+      ),
+      debug: window.__campusTwin.obsPanel.getDebug(),
+      stats: JSON.parse(document.getElementById('dev-stats')?.textContent || '{}'),
+    };
+  })()`);
+  log(
+    `可观测性：latency=${obs.latency.value} error=${obs.errorRate.value} tokens=${obs.tokens.value} traces=${obs.traceRows} rag=${obs.ragVisible}`,
+  );
+  check(obs.paneActive === true, '可观测性页签可打开', '可观测性页签未激活');
+  check(
+    /ms|s/.test(obs.latency.value) && obs.latency.sub.includes('次调用'),
+    `平均响应延迟指标卡渲染（${obs.latency.value} · ${obs.latency.sub}）`,
+    `延迟指标卡异常：${JSON.stringify(obs.latency)}`,
+  );
+  check(
+    obs.errorRate.value.includes('%') && obs.errorRate.sub.length > 0,
+    `工具错误率指标卡渲染（${obs.errorRate.value} · ${obs.errorRate.sub}）`,
+    `错误率指标卡异常：${JSON.stringify(obs.errorRate)}`,
+  );
+  check(
+    obs.tokens.value !== '—' && obs.tokens.sub.length > 0,
+    `Token 总量指标卡渲染（${obs.tokens.value} · ${obs.tokens.sub}）`,
+    `Token 指标卡异常：${JSON.stringify(obs.tokens)}`,
+  );
+  check(obs.debug.metricsAvailable === true && obs.stats.obsMetricsAvailable === true, 'dev-stats 记录指标可用状态', 'dev-stats 指标状态异常');
+  check(
+    obs.traceRows >= 10 && obs.traceRows <= 20,
+    `最近 trace 列表渲染（${obs.traceRows} 条，limit 20）`,
+    `trace 数量异常：${obs.traceRows}`,
+  );
+  check(
+    /\d{2}:\d{2}:\d{2}/.test(obs.firstRow) && obs.firstRow.length > 10,
+    `trace 行展示时间/事件/工具/耗时（${obs.firstRow.slice(0, 80)}）`,
+    `trace 行内容异常：${obs.firstRow}`,
+  );
+  check(obs.badRows >= 1, `失败 trace 以红色状态标识（${obs.badRows} 条）`, '未标识失败 trace');
+
+  // 展开 trace → 详情（事件序列 / tokens / 耗时）
+  await cdp.evaluate(`document.querySelector('.obs-trace-head')?.click()`);
+  await cdp.waitFor(
+    `Boolean(document.querySelector('.obs-trace.expanded .obs-trace-detail:not(.hidden)'))`,
+    10000,
+    '点击 trace 后未展开详情',
+  );
+  await sleep(600);
+  const detail = await cdp.evaluate(`(() => ({
+    expanded: document.querySelectorAll('.obs-trace.expanded').length,
+    summary: document.querySelector('.obs-trace-detail .obs-trace-summary')?.textContent || '',
+    events: document.querySelectorAll('.obs-trace-detail .obs-trace-event-row').length,
+    debugExpanded: window.__campusTwin.obsPanel.getDebug().expanded,
+    statsExpanded: JSON.parse(document.getElementById('dev-stats')?.textContent || '{}').obsExpanded,
+  }))()`);
+  check(detail.expanded === 1, '点击 trace 行可展开事件序列', `展开异常：${JSON.stringify(detail)}`);
+  check(
+    detail.summary.includes('总耗时') || detail.summary.includes('工具调用') || detail.summary.includes('tokens'),
+    `trace 详情展示耗时/tokens/工具调用（${detail.summary.slice(0, 80)}）`,
+    `trace 摘要异常：${detail.summary}`,
+  );
+  check(detail.events >= 1, `trace 详情渲染事件序列（${detail.events} 条 step）`, 'trace 详情缺少事件');
+  check(detail.debugExpanded >= 1 && detail.statsExpanded >= 1, 'dev-stats 记录 trace 展开状态', 'dev-stats 未记录展开状态');
+
+  // RAG 评测指标卡
+  check(
+    obs.ragVisible === true && obs.ragItems.length === 4,
+    `RAG 评测卡渲染 ${obs.ragItems.length} 项（${obs.ragItems.join(' / ')}）`,
+    `RAG 卡片异常：visible=${obs.ragVisible} items=${JSON.stringify(obs.ragItems)}`,
+  );
+  check(
+    ['recall@5', 'MRR', '引用准确率', 'faithfulness'].every((label) =>
+      obs.ragItems.some((item) => item.includes(label)),
+    ),
+    'RAG 卡片包含 recall@5 / MRR / 引用准确率 / faithfulness',
+    `RAG 指标缺失：${JSON.stringify(obs.ragItems)}`,
+  );
+
+  // 按当前会话过滤（W12 已创建会话）
+  const conversationId = await cdp.evaluate(`window.__campusTwin?.ai?.conversationId || null`);
+  const rowsBeforeFilter = obs.traceRows;
+  await cdp.evaluate(`document.getElementById('obs-filter-current').click()`);
+  await sleep(1500);
+  const filtered = await cdp.evaluate(`(() => ({
+    checked: document.getElementById('obs-filter-current')?.checked,
+    rows: document.querySelectorAll('.obs-trace').length,
+    status: document.getElementById('obs-status')?.textContent || '',
+    empty: document.querySelector('.obs-empty')?.textContent || '',
+    debug: window.__campusTwin.obsPanel.getDebug(),
+  }))()`);
+  check(
+    filtered.checked === true && filtered.rows <= rowsBeforeFilter,
+    `按当前会话过滤 trace（会话 ${conversationId || '无'} · ${rowsBeforeFilter} → ${filtered.rows} 条）`,
+    `会话过滤异常：${JSON.stringify(filtered)}`,
+  );
+  await cdp.evaluate(`document.getElementById('obs-filter-current').click()`);
+  await sleep(1400);
+  const unfilteredRows = await cdp.evaluate(`document.querySelectorAll('.obs-trace').length`);
+  check(unfilteredRows >= 10, `取消过滤后恢复全部 trace（${unfilteredRows} 条）`, `取消过滤异常：${unfilteredRows}`);
+
+  // 截图（重新展开第一条 trace，展示事件序列）
+  await cdp.evaluate(`document.querySelector('.obs-trace-head')?.click()`);
+  await sleep(800);
+  await cdp.evaluate(`(() => {
+    const pane = document.getElementById('pane-obs');
+    if (pane) pane.scrollTop = 0;
+    const list = document.getElementById('obs-trace-list');
+    if (list) list.scrollTop = 0;
+  })()`);
+  await sleep(400);
+  const obsShot = await cdp.screenshot(join(DOCS_DIR, 'screenshot-w15-observability.png'));
+  log(`可观测性截图：${obsShot}`);
+
+  // 404 降级：3 个接口全 404
+  await setW15Mode('404');
+  await cdp.evaluate(`document.getElementById('obs-refresh').click()`);
+  await cdp.waitFor(
+    `(document.getElementById('obs-status')?.textContent || '').includes('未就绪')`,
+    15000,
+    '可观测性接口 404 时未显示降级提示',
+  );
+  await sleep(600);
+  const degraded = await cdp.evaluate(`(() => ({
+    status: document.getElementById('obs-status')?.textContent || '',
+    latency: document.querySelector('#obs-metric-latency .obs-metric-value')?.textContent || '',
+    errorRate: document.querySelector('#obs-metric-error-rate .obs-metric-value')?.textContent || '',
+    tokens: document.querySelector('#obs-metric-tokens .obs-metric-value')?.textContent || '',
+    ragVisible: document.getElementById('obs-rag')
+      ? !document.getElementById('obs-rag').classList.contains('hidden')
+      : false,
+    traces: document.querySelectorAll('.obs-trace').length,
+    empty: document.querySelector('.obs-empty')?.textContent || '',
+    debug: window.__campusTwin.obsPanel.getDebug(),
+    runtimeError: document.getElementById('runtime-error')?.textContent || '',
+  }))()`);
+  check(
+    degraded.status.includes('未就绪') && degraded.latency === '—' && degraded.errorRate === '—',
+    `接口 404 时指标卡降级为「—」并提示（${degraded.status.slice(0, 50)}）`,
+    `指标降级异常：${JSON.stringify(degraded)}`,
+  );
+  check(degraded.ragVisible === false, 'RAG 评测接口 404 时隐藏评测卡', 'RAG 卡片未隐藏');
+  check(degraded.traces === 0, 'trace 接口 404 时列表清空并提示', `trace 降级异常：${degraded.traces}`);
+  check(
+    /未就绪|未上线/.test(degraded.debug.error) && degraded.runtimeError === '',
+    '404 降级不产生运行时错误',
+    `降级状态异常：${JSON.stringify(degraded.debug)}`,
+  );
+
+  // 恢复；并确认切换其它页签不受影响
+  await setW15Mode('ok');
+  await cdp.evaluate(`document.getElementById('obs-refresh').click()`);
+  await cdp.waitFor(`document.querySelectorAll('.obs-trace').length >= 10`, 15000, '恢复后 trace 未重新加载');
+  await cdp.evaluate(`document.getElementById('tab-detail').click()`);
+  await sleep(300);
+  const tabsOk = await cdp.evaluate(`({
+    detailActive: document.getElementById('pane-detail')?.classList.contains('active'),
+    obsActive: document.getElementById('pane-obs')?.classList.contains('active'),
+    tabCount: document.querySelectorAll('.dock-tab').length,
+  })`);
+  check(
+    tabsOk.detailActive === true && tabsOk.obsActive === false && tabsOk.tabCount === 5,
+    '可观测性页签不影响其它页签切换（5 个页签）',
+    `页签切换异常：${JSON.stringify(tabsOk)}`,
+  );
+}
+
+/**
+ * W15 live 分支（真实 Agent）：接口就绪则联调指标/trace/RAG；未就绪（404）则校验优雅降级。
+ */
+async function runLiveW15Checks(cdp) {
+  log('');
+  log('—— W15：可观测性页签（真实 Agent）——');
+  const fetchJsonSafe = async (url) => {
+    const response = await fetch(url, { signal: AbortSignal.timeout(8000) });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return response.json();
+  };
+  let metricsDoc = null;
+  let tracesDoc = null;
+  let ragDoc = null;
+  try {
+    metricsDoc = await fetchJsonSafe(`${AGENT_BASE}/api/metrics/agent`);
+  } catch (error) {
+    log(`  [INFO] /api/metrics/agent 未就绪（${error.message}）`);
+  }
+  try {
+    tracesDoc = await fetchJsonSafe(`${AGENT_BASE}/api/traces?limit=20`);
+  } catch (error) {
+    log(`  [INFO] /api/traces 未就绪（${error.message}）`);
+  }
+  try {
+    ragDoc = await fetchJsonSafe(`${AGENT_BASE}/api/rag/report`);
+  } catch (error) {
+    log(`  [INFO] /api/rag/report 未就绪（${error.message}）`);
+  }
+  await cdp.evaluate(`document.getElementById('tab-obs').click()`);
+  await sleep(2600);
+  const ui = await cdp.evaluate(`(() => ({
+    status: document.getElementById('obs-status')?.textContent || '',
+    latency: document.querySelector('#obs-metric-latency .obs-metric-value')?.textContent || '',
+    errorRate: document.querySelector('#obs-metric-error-rate .obs-metric-value')?.textContent || '',
+    tokens: document.querySelector('#obs-metric-tokens .obs-metric-value')?.textContent || '',
+    rows: document.querySelectorAll('.obs-trace').length,
+    ragVisible: document.getElementById('obs-rag')
+      ? !document.getElementById('obs-rag').classList.contains('hidden')
+      : false,
+    debug: window.__campusTwin.obsPanel.getDebug(),
+    runtimeError: document.getElementById('runtime-error')?.textContent || '',
+  }))()`);
+  if (metricsDoc) {
+    check(
+      ui.latency !== '—' && /ms|s/.test(ui.latency),
+      `真实 Agent 指标卡渲染（平均延迟 ${ui.latency} / 错误率 ${ui.errorRate} / tokens ${ui.tokens}）`,
+      `真实指标渲染异常：${JSON.stringify(ui)}`,
+    );
+  } else {
+    check(ui.latency === '—', '指标接口未就绪时指标卡降级为「—」', `指标降级异常：${ui.latency}`);
+  }
+  if (tracesDoc) {
+    const expected = Array.isArray(tracesDoc.items) ? tracesDoc.items.length : 0;
+    check(
+      ui.rows >= 1 && ui.rows <= Math.max(20, expected),
+      `真实 trace 列表渲染（${ui.rows} 条）`,
+      `真实 trace 渲染异常：${JSON.stringify({ rows: ui.rows, expected })}`,
+    );
+    if (ui.rows >= 1) {
+      await cdp.evaluate(`document.querySelector('.obs-trace-head')?.click()`);
+      await sleep(900);
+      const detail = await cdp.evaluate(`({
+        expanded: document.querySelectorAll('.obs-trace.expanded').length,
+        events: document.querySelectorAll('.obs-trace-detail .obs-trace-event-row').length,
+      })`);
+      check(detail.expanded === 1, '真实 trace 可展开详情', `真实 trace 展开异常：${JSON.stringify(detail)}`);
+      log(`  真实 trace 展开：${detail.events} 条事件`);
+      const liveObsShot = await cdp.screenshot(join(DOCS_DIR, 'screenshot-w15-observability-live.png'));
+      log(`真实可观测性截图：${liveObsShot}`);
+    }
+  } else {
+    check(ui.rows === 0, 'trace 接口未就绪时列表为空并提示', `trace 降级异常：${ui.rows}`);
+  }
+  if (ragDoc) {
+    check(ui.ragVisible === true, '真实 RAG 评测卡渲染', '真实 RAG 评测卡未显示');
+  } else {
+    check(ui.ragVisible === false, 'RAG 评测接口 404 时隐藏评测卡', 'RAG 评测卡未隐藏');
+  }
+  if (!metricsDoc && !tracesDoc) {
+    check(ui.status.includes('未就绪'), `可观测性接口未就绪时显示降级提示（${ui.status.slice(0, 50)}）`, `降级提示异常：${ui.status}`);
+  }
+  check(ui.runtimeError === '', '可观测性加载无运行时错误', `可观测性运行时错误：${ui.runtimeError}`);
+}
+
+/**
  * 纯前端单测式断言（无 DOM、无网络）：验证 stale_source 语义在纯函数层正确。
  * 场景：PC-JX1 有一条 stale_source=true 的 NC 滞后 issue（数据源已恢复），
  *       SW-SX-2960 有一条真正的 active 告警。
@@ -1338,8 +1653,9 @@ async function runLiveChecks(cdp) {
     `数据新鲜度异常：${state.freshness}`,
   );
   check(
-    state.freshnessTitle.includes('数据更新于') && !state.freshnessTitle.includes('NaN'),
-    `新鲜度 tooltip 显示“数据更新于 …”（${state.freshnessTitle}）`,
+    (state.freshnessTitle.includes('数据更新于') || state.freshnessTitle.includes('陈旧')) &&
+      !state.freshnessTitle.includes('NaN'),
+    `新鲜度 tooltip 显示“数据更新于 …”或“采集陈旧”（${state.freshnessTitle}）`,
     `新鲜度 tooltip 异常：${state.freshnessTitle}`,
   );
   check(
@@ -1722,6 +2038,8 @@ async function runLiveChecks(cdp) {
   await runLiveW10Checks(cdp);
   // ---- W12：流式 / RAG（真实 Agent，未就绪时校验回退） ----
   await runLiveStreamingChecks(cdp);
+  // ---- W15：可观测性页签（真实 Agent，未就绪时校验降级） ----
+  await runLiveW15Checks(cdp);
 
   await restoreAutoRotate(cdp, wasAutoRotate);
 }
@@ -2233,6 +2551,9 @@ async function runW9Checks(cdp) {
   // W12：AI 流式渲染（SSE）+ RAG 引用 + 回退
   await runW12Checks(cdp);
 
+  // W15：可观测性页签（metrics / traces / RAG 评测）
+  await runW15Checks(cdp);
+
   await restoreAutoRotate(cdp, wasAutoRotate);
 }
 
@@ -2553,8 +2874,8 @@ async function main() {
     const passMessages = {
       demo: '离线提示、演示数据开关、告警脉冲与演示水印全部通过。',
       'ai-offline': '「AI 服务未连接」降级提示正确，3D 大屏与实时数据不受影响。',
-      live: '页面加载、4 楼/设备渲染、W3 实时数据增强、W7.1 stale_source 语义、W9 配置驱动场景/告警管理 UI、W9.1 新 trace 结构（plan/工具序列）、live action 卡片（场景新增设备取消 + 危险操作取消，数据未变更）、W10 路径追踪/根因分组/通知状态（就绪则联调、未就绪则降级提示）、W12 流式接口未就绪时自动回退非流式并提示、点击聚焦、AI 真实问答与 trace 全部通过。',
-      w9: '配置驱动动态场景（新增楼栋/pending 设备/自动高亮）、新设备确认撤销、告警删除/静默/清空/撤销、历史会话、Agent action 卡片、W10 路径追踪 3D（完整/断点/清除）、告警根因分组（抑制成员灰显 + 操作保留）、通知状态/测试、W12 SSE 流式渲染/事件顺序/token 拼接/停止生成/RAG 引用/404 回退全部通过。',
+      live: '页面加载、4 楼/设备渲染、W3 实时数据增强、W7.1 stale_source 语义、W9 配置驱动场景/告警管理 UI、W9.1 新 trace 结构（plan/工具序列）、live action 卡片（场景新增设备取消 + 危险操作取消，数据未变更）、W10 路径追踪/根因分组/通知状态（就绪则联调、未就绪则降级提示）、W12 流式接口未就绪时自动回退非流式并提示、W15 可观测性页签（就绪则联调指标/trace/RAG、未就绪则优雅降级）、点击聚焦、AI 真实问答与 trace 全部通过。',
+      w9: '配置驱动动态场景（新增楼栋/pending 设备/自动高亮）、新设备确认撤销、告警删除/静默/清空/撤销、历史会话、Agent action 卡片、W10 路径追踪 3D（完整/断点/清除）、告警根因分组（抑制成员灰显 + 操作保留）、通知状态/测试、W12 SSE 流式渲染/事件顺序/token 拼接/停止生成/RAG 引用/404 回退、W15 可观测性页签（指标卡/trace 列表展开/会话过滤/RAG 评测卡/404 降级）全部通过。',
     };
     log(`结果：PASS —— ${passMessages[MODE] || '全部检查通过。'}`);
   } else {

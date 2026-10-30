@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -54,7 +55,9 @@ from app.agent.eval.fixture_data import (
     load_scenarios,
 )
 from app.agent.mcp_client import MCPBridgeClient, probe_mcp_bridge, tool_names as mcp_tool_names
+from app.agent.observability import TraceStore, record_turn
 from app.agent.providers.base import LLMProviderError, ProviderConfigError
+from app.agent.resilience import ResilienceConfig, ResilientExecutor
 from app.agent.providers.factory import build_provider_from_settings, provider_catalog
 from app.agent.rag.retriever import retrieval_health
 from app.agent.roles.orchestrator import (
@@ -70,6 +73,7 @@ from app.config import AgentSettings
 logger = logging.getLogger("campus_twin.agent.api")
 
 REPORT_PATH = Path(__file__).resolve().parent / "agent" / "eval" / "report.json"
+RAG_REPORT_PATH = Path(__file__).resolve().parent / "agent" / "eval" / "rag_report.json"
 
 ROLE_WHITELISTS: Dict[str, List[str]] = {
             "main": ["diagnosis(8 后端只读 + 5 MCP 只读) + 路由/汇总"],
@@ -146,8 +150,14 @@ def create_app(settings: Optional[AgentSettings] = None) -> FastAPI:
         app.state.toolkit = OpsToolkit(
             app.state.backend,
             mcp_bridge=MCPBridgeClient(config.mcp_bridge_base, config.mcp_bridge_timeout_s),
+            resilience=ResilientExecutor(
+                ResilienceConfig(max_retries=2, retry_delays=(1.0, 3.0))
+            ),
         )
         app.state.mcp_bridge = app.state.toolkit._mcp_bridge
+
+        # W15-P1：自建 trace 可观测性（SQLite trace_events，与 agent.db 同库）
+        app.state.traces = TraceStore(config.db_path)
 
         # 2) W9：会话 / action 存储 + 执行器
         app.state.conversations = ConversationStore(config.db_path)
@@ -275,6 +285,16 @@ def create_app(settings: Optional[AgentSettings] = None) -> FastAPI:
             "streaming": streaming_health(),
             "rag": retrieval_health(),
             "mcp_bridge": probe_mcp_bridge(app.state.mcp_bridge),
+            "observability": {
+                "storage": "sqlite:trace_events",
+                "trace_count": app.state.traces.count(),
+                "endpoints": [
+                    "/api/traces",
+                    "/api/traces/{trace_id}",
+                    "/api/metrics/agent",
+                    "/api/rag/report",
+                ],
+            },
             "conversations": conversations.count(),
             "pending_actions": actions.count("pending"),
             "action_ttl_s": config.action_ttl_s,
@@ -376,6 +396,7 @@ def create_app(settings: Optional[AgentSettings] = None) -> FastAPI:
         config: AgentSettings = app.state.settings
         engine = app.state.engine
         temp_engine = None
+        trace_id = app.state.traces.new_trace_id()
 
         # 运行时临时切换 provider/model（不修改环境变量，便于演示「随时换模型」）
         if payload.provider or payload.model:
@@ -419,7 +440,22 @@ def create_app(settings: Optional[AgentSettings] = None) -> FastAPI:
             close = getattr(temp_engine, "close", None)
             if callable(close):
                 close()
-        return outcome.to_dict()
+        result = outcome.to_dict()
+        try:
+            record_turn(
+                app.state.traces,
+                trace_id=trace_id,
+                conversation_id=result.get("conversation_id"),
+                question=payload.question,
+                payload=result,
+                engine=getattr(engine, "engine_name", "classic"),
+                provider=payload.provider or config.provider,
+                model=payload.model or config.model,
+                latency_ms=float(result.get("elapsed_ms") or 0.0),
+            )
+        except Exception as exc:  # noqa: BLE001 - trace 失败不影响主流程
+            logger.warning("trace 写入失败：%s", exc)
+        return result
 
     # ------------------------------------------------------------------ #
     # SSE 流式对话（W12；事件契约见 app/agent/streaming.py）
@@ -451,7 +487,11 @@ def create_app(settings: Optional[AgentSettings] = None) -> FastAPI:
                 )
                 engine = temp_engine
 
+        trace_id = app.state.traces.new_trace_id()
+        started = time.perf_counter()
+
         async def event_source() -> Any:
+            done_payload: Optional[Dict[str, Any]] = None
             try:
                 async for event in stream_chat(
                     engine,
@@ -461,6 +501,9 @@ def create_app(settings: Optional[AgentSettings] = None) -> FastAPI:
                 ):
                     if await request.is_disconnected():
                         break
+                    if event.get("type") == "done":
+                        done_payload = dict(event)
+                        event = done_payload
                     yield "data: %s\n\n" % json.dumps(event, ensure_ascii=False)
             except Exception as exc:  # noqa: BLE001 - SSE 错误只发 error 事件
                 message = config.sanitize("%s: %s" % (type(exc).__name__, exc))
@@ -469,6 +512,25 @@ def create_app(settings: Optional[AgentSettings] = None) -> FastAPI:
                     ensure_ascii=False,
                 )
             finally:
+                if done_payload is not None:
+                    try:
+                        record_turn(
+                            app.state.traces,
+                            trace_id=trace_id,
+                            conversation_id=done_payload.get("conversation_id")
+                            or payload.conversation_id,
+                            question=payload.question,
+                            payload=done_payload,
+                            engine=getattr(engine, "engine_name", "classic"),
+                            provider=payload.provider or config.provider,
+                            model=payload.model or config.model,
+                            latency_ms=float(
+                                done_payload.get("elapsed_ms")
+                                or (time.perf_counter() - started) * 1000.0
+                            ),
+                        )
+                    except Exception as exc:  # noqa: BLE001
+                        logger.warning("stream trace 写入失败：%s", exc)
                 close = getattr(temp_engine, "close", None)
                 if callable(close):
                     close()
@@ -553,6 +615,102 @@ def create_app(settings: Optional[AgentSettings] = None) -> FastAPI:
         except ActionError as exc:
             _raise_action_error(exc)
         return {"ok": True, "action": action}
+
+    # ------------------------------------------------------------------ #
+    # W15-P1：可观测性（trace / metrics / RAG 报告）
+    # ------------------------------------------------------------------ #
+    @app.get("/api/traces", tags=["observability"])
+    def list_traces(
+        conversation_id: Optional[str] = Query(default=None),
+        limit: int = Query(default=20, ge=1, le=200),
+    ) -> Dict[str, Any]:
+        store: TraceStore = app.state.traces
+        summaries = store.list_traces(conversation_id, limit=limit)
+        items: List[Dict[str, Any]] = []
+        for summary in summaries:
+            events = store.query_trace(summary["trace_id"], limit=500)
+            llm = next((item for item in events if item.get("event") == "llm"), {})
+            last_error = summary.get("last_error")
+            items.append(
+                {
+                    "trace_id": summary["trace_id"],
+                    "conversation_id": summary.get("conversation_id"),
+                    "step": summary.get("events"),
+                    "event": "turn",
+                    "tool": None,
+                    "provider": llm.get("provider"),
+                    "model": llm.get("model"),
+                    "tokens_in": summary.get("tokens_in") or 0,
+                    "tokens_out": summary.get("tokens_out") or 0,
+                    "latency_ms": summary.get("total_latency_ms") or 0.0,
+                    "ok": bool(summary.get("ok")),
+                    "error": last_error,
+                    "ts": summary.get("started_at"),
+                    "events_count": summary.get("events"),
+                    "ended_at": summary.get("ended_at"),
+                }
+            )
+        return {"count": len(items), "items": items, "traces": summaries, "limit": limit}
+
+    @app.get("/api/traces/{trace_id}", tags=["observability"])
+    def get_trace(trace_id: str) -> Dict[str, Any]:
+        store: TraceStore = app.state.traces
+        events = store.query_trace(trace_id, limit=1000)
+        if not events:
+            raise HTTPException(status_code=404, detail="trace 不存在：%s" % trace_id)
+        tool_events = [item for item in events if item.get("event") == "tool"]
+        summary = {
+            "trace_id": trace_id,
+            "conversation_id": events[0].get("conversation_id"),
+            "started_at": events[0].get("ts"),
+            "ended_at": events[-1].get("ts"),
+            "events": len(events),
+            "steps": len(events),
+            "tool_calls": len(tool_events),
+            "tokens_in": sum(int(item.get("tokens_in") or 0) for item in events),
+            "tokens_out": sum(int(item.get("tokens_out") or 0) for item in events),
+            "latency_ms": round(sum(float(item.get("latency_ms") or 0.0) for item in events), 2),
+            "ok": all(bool(item.get("ok")) for item in events),
+        }
+        return {
+            "trace_id": trace_id,
+            "summary": summary,
+            "steps": events,
+            "events": events,
+            "count": len(events),
+        }
+
+    @app.get("/api/metrics/agent", tags=["observability"])
+    def agent_metrics() -> Dict[str, Any]:
+        store: TraceStore = app.state.traces
+        metrics = store.metrics()
+        metrics["calls"] = metrics.get("trace_count", 0)
+        return metrics
+
+    @app.get("/api/rag/report", tags=["observability"])
+    def rag_report() -> Dict[str, Any]:
+        if not RAG_REPORT_PATH.exists():
+            raise HTTPException(status_code=404, detail="RAG 评测报告尚未生成")
+        try:
+            report = json.loads(RAG_REPORT_PATH.read_text(encoding="utf-8"))
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(status_code=500, detail="RAG 报告读取失败：%s" % exc) from None
+        configs = report.get("configs") or {}
+        best = configs.get("hybrid_rerank") or next(iter(configs.values()), {})
+        return {
+            "available": True,
+            "generated_at": report.get("generated_at"),
+            "best_strategy": report.get("best_strategy"),
+            "query_count": (report.get("queries") or {}).get("count"),
+            "corpus_chunks": (report.get("corpus") or {}).get("default_chunks"),
+            "recall_at_5": best.get("recall_at_5"),
+            "mrr": best.get("mrr"),
+            "citation_precision": best.get("citation_precision"),
+            "citation_traceability": best.get("citation_traceability"),
+            "faithfulness": best.get("faithfulness"),
+            "metrics": best,
+            "report": report,
+        }
 
     # ------------------------------------------------------------------ #
     # 评测集 / 报告

@@ -82,6 +82,11 @@ Write-Host "[2/6] 后端（:8000，netcon 驱动 + Webhook 通知）..."
 if (Test-Port 8000) {
     Write-Host "  已在运行，跳过" -ForegroundColor DarkGray
 } else {
+    # 系统代理（Clash 等）会让 Python httpx 走失效代理，这里强制绕过
+    $env:NO_PROXY = '*'
+    $env:no_proxy = '*'
+    $env:HTTP_PROXY = ''
+    $env:HTTPS_PROXY = ''
     $env:NOTIFY_ENABLED = 'true'
     $env:NOTIFY_WEBHOOK_URL = 'http://127.0.0.1:9000/webhook'
     $env:NOTIFY_WEBHOOK_TYPE = 'generic'
@@ -91,6 +96,7 @@ if (Test-Port 8000) {
         -RedirectStandardOutput (Join-Path $Logs 'backend.out.log') `
         -RedirectStandardError (Join-Path $Logs 'backend.err.log') | Out-Null
     Remove-Item Env:\NOTIFY_ENABLED, Env:\NOTIFY_WEBHOOK_URL, Env:\NOTIFY_WEBHOOK_TYPE, Env:\NOTIFY_MIN_SEVERITY -ErrorAction SilentlyContinue
+    Remove-Item Env:\NO_PROXY, Env:\no_proxy, Env:\HTTP_PROXY, Env:\HTTPS_PROXY -ErrorAction SilentlyContinue
     Wait-Port 8000 '后端' 40 | Out-Null
 }
 
@@ -99,6 +105,10 @@ Write-Host "[3/6] AI Agent（:8100，LangGraph 引擎 + MCP 工具）..."
 if (Test-Port 8100) {
     Write-Host "  已在运行，跳过" -ForegroundColor DarkGray
 } else {
+    $env:NO_PROXY = '*'
+    $env:no_proxy = '*'
+    $env:HTTP_PROXY = ''
+    $env:HTTPS_PROXY = ''
     Start-Process -FilePath $Py -ArgumentList '-m', 'uvicorn', 'app.api:app', '--host', '127.0.0.1', '--port', '8100', '--log-level', 'info' `
         -WorkingDirectory (Join-Path $Root 'agent') -WindowStyle Hidden `
         -RedirectStandardOutput (Join-Path $Logs 'agent.out.log') `

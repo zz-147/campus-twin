@@ -38,6 +38,7 @@ import time
 from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
 from app.agent.mcp_client import MCPBridgeClient, MCPBridgeError
+from app.agent.resilience import ResilientExecutor, normalize_envelope
 from app.agent.rag.retriever import search as search_knowledge
 
 from app.agent.backend import BackendClient, BackendError
@@ -555,9 +556,11 @@ class OpsToolkit:
         backend: BackendClient,
         allowed: Optional[Iterable[str]] = None,
         mcp_bridge: Optional[MCPBridgeClient] = None,
+        resilience: Optional[ResilientExecutor] = None,
     ) -> None:
         self._backend = backend
         self._mcp_bridge: MCPBridgeClient = mcp_bridge or MCPBridgeClient()
+        self._resilience = resilience
         self._allowed: Optional[List[str]] = None
         if allowed is not None:
             requested = [str(name) for name in allowed]
@@ -615,8 +618,13 @@ class OpsToolkit:
         ]
 
     def restricted(self, names: Iterable[str]) -> "OpsToolkit":
-        """返回共享同一 backend / MCP Bridge 的工具白名单视图（子 Agent 隔离用）。"""
-        return OpsToolkit(self._backend, allowed=names, mcp_bridge=self._mcp_bridge)
+        """返回共享同一 backend / MCP Bridge / 可靠性层的工具白名单视图（子 Agent 隔离用）。"""
+        return OpsToolkit(
+            self._backend,
+            allowed=names,
+            mcp_bridge=self._mcp_bridge,
+            resilience=self._resilience,
+        )
 
     def schemas(self) -> List[Dict[str, Any]]:
         """OpenAI function-calling schema（深拷贝，避免调用方污染）。"""
@@ -649,16 +657,45 @@ class OpsToolkit:
             )
         else:
             try:
-                data, summary = handler(args)
-                serialized = json.dumps(data, ensure_ascii=False, default=str)
-                if len(serialized) > MAX_TOOL_RESULT_CHARS:
-                    data = {
-                        "truncated": True,
-                        "note": "工具返回数据过大已截断（>%d 字符）" % MAX_TOOL_RESULT_CHARS,
-                        "preview": serialized[:MAX_TOOL_RESULT_CHARS],
-                    }
-                    summary = summary + "（数据过大已截断）"
-                envelope.update({"ok": True, "data": data, "summary": summary})
+                if self._resilience is not None:
+                    def _invoke() -> Dict[str, Any]:
+                        data, summary = handler(args)
+                        return {"ok": True, "summary": summary, "data": data}
+
+                    result = self._resilience.call(
+                        "tool:%s" % name,
+                        _invoke,
+                        normalize=True,
+                    )
+                    if result.get("ok"):
+                        data = result.get("data")
+                        if data is None:
+                            data = {}
+                        serialized = json.dumps(data, ensure_ascii=False, default=str)
+                        if len(serialized) > MAX_TOOL_RESULT_CHARS:
+                            data = {
+                                "truncated": True,
+                                "note": "工具返回数据过大已截断（>%d 字符）" % MAX_TOOL_RESULT_CHARS,
+                                "preview": serialized[:MAX_TOOL_RESULT_CHARS],
+                            }
+                            envelope.update({"ok": True, "data": data, "summary": (result.get("summary") or summary) + "（数据过大已截断）"})
+                        else:
+                            envelope.update(
+                                {"ok": True, "data": data, "summary": result.get("summary") or summary}
+                            )
+                    else:
+                        envelope["error"] = result.get("error") or "工具调用失败"
+                else:
+                    data, summary = handler(args)
+                    serialized = json.dumps(data, ensure_ascii=False, default=str)
+                    if len(serialized) > MAX_TOOL_RESULT_CHARS:
+                        data = {
+                            "truncated": True,
+                            "note": "工具返回数据过大已截断（>%d 字符）" % MAX_TOOL_RESULT_CHARS,
+                            "preview": serialized[:MAX_TOOL_RESULT_CHARS],
+                        }
+                        summary = summary + "（数据过大已截断）"
+                    envelope.update({"ok": True, "data": data, "summary": summary})
             except ToolArgumentError as exc:
                 envelope["error"] = "参数错误：%s" % exc
             except BackendError as exc:
@@ -1467,6 +1504,12 @@ class OpsToolkit:
                     "source": hit.get("source"),
                     "text": hit.get("text"),
                     "citation": "[K%d]" % int(hit.get("rank") or 0),
+                    "scores": {
+                        "bm25": hit.get("bm25_score"),
+                        "vector": hit.get("vector_score"),
+                        "hybrid": hit.get("hybrid_score"),
+                        "rerank": hit.get("rerank_score"),
+                    },
                 }
                 for hit in hits
             ],

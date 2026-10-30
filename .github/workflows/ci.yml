@@ -1,0 +1,146 @@
+# ============================================================================
+# Campus Twin 离线 CI（GitHub Actions）
+# ----------------------------------------------------------------------------
+# 触发：push / pull_request 到 main
+# 6 个独立 job，全部离线（mock provider / fixture 数据 / 不连真实 LLM、PT、NC）：
+#   backend     Python 3.9    pytest backend/tests
+#   agent       Python 3.9    pytest agent/tests（LLM_PROVIDER=mock）
+#   mcp_server  Python 3.12   pytest mcp_server/tests
+#   mcp_bridge  Python 3.13   unittest discover mcp_bridge/tests
+#   feishu-bot  Node 20       npm ci + npm run self-test
+#   frontend    Node 20       npm ci + npm run build（不跑浏览器 smoke）
+#
+# 版本说明：
+# - mcp 1.30 的 Requires-Python 是 >=3.10，所以 mcp_server / mcp_bridge 不能用 3.9
+#   （mcp_server 单测本身只依赖 httpx+core.py，但 job 按完整 requirements 安装并留作
+#   真实 MCP 运行时验证，所以用 3.12）。
+# - mcp_bridge 本机开发 venv 是 Python 3.14；GitHub Actions 的 setup-python 对 3.14
+#   的可用时间可能滞后，这里用 3.13（mcp 1.30 支持 >=3.10，代码兼容）；如需 3.14，
+#   把 python-version 改成 '3.14' 前先用 setup-python 验证 runner 已有该版本。
+# - 本机未安装 Docker，workflow 不构建镜像；镜像构建校验见 docs/部署与CI.md。
+# ============================================================================
+name: CI
+
+"on":
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: backend (py3.9)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.9"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - name: Install backend deps
+        run: python -m pip install -r backend/requirements.txt
+      - name: Run backend tests
+        working-directory: backend
+        run: python -m pytest tests -q
+
+  agent:
+    name: agent (py3.9)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      LLM_PROVIDER: mock
+      LLM_API_KEY: ""
+      AGENT_DATA_SOURCE: fixture
+      AGENT_ENGINE: langgraph
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.9"
+          cache: pip
+          cache-dependency-path: agent/requirements.txt
+      - name: Install agent deps
+        run: python -m pip install -r agent/requirements.txt
+      - name: Run agent tests (offline, mock provider)
+        working-directory: agent
+        run: python -m pytest tests -q
+
+  mcp_server:
+    name: mcp_server (py3.12)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: mcp_server/requirements.txt
+      - name: Install mcp_server deps
+        run: python -m pip install -r mcp_server/requirements.txt pytest
+      - name: Run mcp_server tests (offline, mocked httpx)
+        working-directory: mcp_server
+        run: python -m pytest tests -q
+
+  mcp_bridge:
+    name: mcp_bridge (py3.13)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: mcp_bridge/requirements.txt
+      - name: Install mcp_bridge deps
+        run: python -m pip install -r mcp_bridge/requirements.txt
+      - name: Run mcp_bridge tests (unittest, no npx servers)
+        working-directory: mcp_bridge
+        run: python -m unittest discover -s tests -v
+
+  feishu-bot:
+    name: feishu-bot (node20)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: feishu-bot/package-lock.json
+      - name: Install feishu-bot deps
+        working-directory: feishu-bot
+        run: npm ci
+      - name: Run feishu-bot self-test (offline)
+        working-directory: feishu-bot
+        run: npm run self-test
+
+  frontend:
+    name: frontend (node20)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install frontend deps
+        working-directory: frontend
+        run: npm ci
+      - name: Build frontend (no browser smoke)
+        working-directory: frontend
+        run: npm run build

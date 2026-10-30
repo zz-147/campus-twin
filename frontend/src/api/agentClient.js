@@ -448,4 +448,27 @@ export class AgentClient {
       body: {},
     });
   }
+
+  // ------------------------------------------------------------------ //
+  // W15：可观测性（trace 查询 / Agent 指标 / RAG 评测）
+  // 接口未就绪时 _request 抛 AgentError{kind:'unsupported'}，由 UI 优雅降级
+  // ------------------------------------------------------------------ //
+  async traces({ conversationId = null, limit = 20, timeoutMs = 8000 } = {}) {
+    const params = new URLSearchParams();
+    params.set('limit', String(limit));
+    if (conversationId) params.set('conversation_id', conversationId);
+    return this._request(`/api/traces?${params.toString()}`, { timeoutMs });
+  }
+
+  async trace(traceId, timeoutMs = 8000) {
+    return this._request(`/api/traces/${encodeURIComponent(traceId)}`, { timeoutMs });
+  }
+
+  async metricsAgent(timeoutMs = 8000) {
+    return this._request('/api/metrics/agent', { timeoutMs });
+  }
+
+  async ragReport(timeoutMs = 8000) {
+    return this._request('/api/rag/report', { timeoutMs });
+  }
 }

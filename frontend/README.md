@@ -15,10 +15,16 @@ W12 新增 **AI 流式对话（SSE）**：状态条（检索知识库/调用工�
 完成后渲染 trace/actions（能力不变）+「停止生成」；**RAG 引用**（`[K1]/[K2]` 可点击角标 +
 「参考知识」折叠区：标题/来源/分数）；流式接口 404/失败时**自动回退非流式**并提示。
 
+W15 新增 **可观测性页签**：平均延迟 / 工具错误率 / Token 总量 3 个指标卡、最近 trace 列表
+（点击展开事件序列、支持按当前会话过滤）、RAG 评测指标卡（recall@5 / MRR / 引用准确率 /
+faithfulness）；Agent 接口未就绪时仅该页签优雅降级，不阻塞其它功能。
+
 - 前端技术栈：Vite 8 + 原生 ES Module + Three.js 0.186 + OrbitControls
 - 数据接入：REST 快照（首屏 / 兜底轮询）+ WebSocket `/ws` 实时推送（断线自动重连）+ 场景版本轮询（4s）
 - AI 接入：`POST /api/chat`（非流式兜底）/ **`POST /api/chat/stream`（SSE 流式）**；
   真实模型单次 20~40s，前端超时 120s；支持 actions[] 与 RAG citations
+- 可观测性：`GET /api/traces`、`GET /api/traces/{id}`、`GET /api/metrics/agent`、`GET /api/rag/report`
+  （懒加载，仅打开页签时请求）
 - 场景规模：默认 4 栋楼 / 12 个标记；W9 支持后端配置任意数量楼栋/设备（当前真实配置 v3 = 4 栋 / 12 设备）
 - 性能：默认场景 45 个可渲染对象 / 65 个场景节点，无 LOD；路径追踪激活时额外约 17 个路径对象；
   流式 token 采用 80ms 节流粗渲染，AI 服务独立，不阻塞 3D 渲染
@@ -48,6 +54,7 @@ frontend/
 │  ├─ screenshot-w10-path-live.png # W10：真实后端 NC flow-analysis 路径（3 跳）
 │  ├─ screenshot-w12-streaming.png # W12：AI 流式对话（状态条/工具 chip/逐 token/停止生成）
 │  ├─ screenshot-w12-rag.png      # W12：RAG 引用角标 + 参考知识（标题/来源/分数）
+│  ├─ screenshot-w15-observability.png # W15：可观测性（指标卡/trace 展开/RAG 评测卡）
 │  ├─ screenshot-ai-offline.png   # Agent 离线降级（不影响 3D 大屏）
 │  ├─ screenshot-demo.png         # 后端离线 + 演示数据模式
 │  └─ ai-call-record.md           # 对 :8100 真实 DeepSeek 的调用实测记录
@@ -78,6 +85,7 @@ frontend/
       ├─ hud.js            # 状态栏 / 告警列表（删除·静默·清空）/ 右侧页签坞
       ├─ aiPanel.js        # AI 对话面板（流式 SSE / Markdown / trace / 会话 / action 卡片 / RAG 引用）
       ├─ pathPanel.js      # W10 路径追踪面板（源/目的选择、hop 列表、断点/错误提示）
+      ├─ observability.js  # W15 可观测性面板（指标卡/trace 列表展开/RAG 评测/懒加载降级）
       ├─ newDevices.js     # W9 新设备提示条（确认加入 / 撤销 / 选择楼栋）
       ├─ dialog.js         # 通用确认弹窗（危险操作二次确认）
       ├─ markdown.js       # 极简 Markdown 渲染器（标题/列表/代码块/表格/加粗，XSS 安全）
@@ -290,6 +298,20 @@ npm run dev -- --port 5173
   `token{text}` / `action{action}` / `done{answer,trace,elapsed_ms,conversation_id}` / `error{message}`；
   RAG 命中在 `trace.retrieval.hits[{id,title,source,score}]`。
 
+### W15-P2：可观测性页签（Agent 质量指标 / Trace / RAG 评测）
+
+- 右侧信息坞新增第 5 个页签「可观测性」（`data-tab="obs"`），**懒加载**（仅打开时请求，不阻塞大屏）；
+- **3 个指标卡**：平均响应延迟（ms/s · 调用次数）、工具错误率（% · 模型数）、Token 总量（k/M · 统计天数），
+  数据来自 `GET /api/metrics/agent`；加载态显示「正在加载…」，失败时显示「—」并降级提示；
+- **最近 Trace**：`GET /api/traces?limit=20`，按时间倒序展示时间 / 步骤 / 事件 / 工具 / 耗时 / ok；
+  点击行展开事件序列（`GET /api/traces/{trace_id}`：每步 event/tool/耗时/tokens/错误）、
+  汇总行展示总耗时/工具调用次数/tokens 输入输出；失败 trace 红色标识；支持「仅当前会话」过滤
+  （勾选后用当前 AI 会话 `conversation_id` 过滤）；
+- **RAG 评测卡**：`GET /api/rag/report` → recall@5 / MRR / 引用准确率 / faithfulness（百分比/MRR），
+  显示评测样本数 tooltip；接口 404 时整个评测卡隐藏；
+- 三个接口全部 404/不可用时页签显示「可观测性服务未就绪…不影响其它功能」，指标卡置「—」、
+  trace 列表清空、RAG 卡隐藏；切换其它页签/3D 场景/AI 对话完全不受影响。
+
 ## 数据接入与真实性说明
 
 | 页面内容 | 数据来源 |
@@ -314,6 +336,9 @@ npm run dev -- --port 5173
 | W10 通知状态 | `GET /api/notify/status`、`POST /api/notify/test` |
 | W12 流式问答 | `POST /api/chat/stream`（SSE：meta/status/tool/token/action/done/error；失败回退 `POST /api/chat`） |
 | W12 RAG 引用 | `trace.retrieval.hits[{id,title,source,score}]` + 回答文本 `[K1]/[K2]` 标记 |
+| W15 trace 查询 | `GET /api/traces?conversation_id=&limit=`、`GET /api/traces/{trace_id}`（Agent :8100） |
+| W15 Agent 指标 | `GET /api/metrics/agent` → avg_latency_ms / tool_error_rate / tokens_total / calls / by_day / by_model |
+| W15 RAG 评测 | `GET /api/rag/report` → recall@5 / MRR / 引用准确率 / faithfulness（404 时隐藏卡片） |
 | AI 问答 | `POST /api/chat`（agent 服务 :8100，真实 DeepSeek 或 mock；响应含 actions[]） |
 
 约束与保证：
@@ -446,23 +471,26 @@ Agent action 卡片（危险红色 + 取消 + 确认执行结果）、历史会�
 **W10**：路径追踪（完整路径 4 跳 / 断点路径 3 跳红色 ✕ / 清除）、告警根因分组（根因链路中断 +
 被抑制成员灰显 + 分组内操作保留）、通知状态（已启用 + 测试发送 sent_count 递增）；
 **W12**：SSE 事件顺序（meta→status→tool→token→done）、token 拼接与 done.answer 一致、停止生成
-（AbortController + 保留已生成内容）、RAG 引用角标/参考知识折叠区/点击高亮、SSE 404 回退非流式并提示，
+（AbortController + 保留已生成内容）、RAG 引用角标/参考知识折叠区/点击高亮、SSE 404 回退非流式并提示；
+**W15**：可观测性页签（3 指标卡 / 最近 trace 列表与事件展开 / 仅当前会话过滤 / RAG 评测 4 指标 /
+三接口 404 时指标「—」+ trace 清空 + RAG 隐藏 + 中文降级提示），
 截图 `screenshot-w9-dynamic/alerts/actions.png`、`screenshot-w10-path/path-broken/groups.png`、
-`screenshot-w12-streaming/rag.png`。
+`screenshot-w12-streaming/rag.png`、`screenshot-w15-observability.png`。
 
 实测结果（2026-10-30，Windows / Edge headless + CDP 真实鼠标键盘事件）：
 
 | 用例 | 结果 | 关键数据 |
 |---|---|---|
-| `npm run build` | PASS | 27 modules，gzip JS 194.0 kB / CSS 8.45 kB |
-| `npm run verify:devices` | PASS | 5 设备 + 6 主机，12 标记 |
-| `npm run smoke`（live） | PASS | 首帧 ~0.7s；45 渲染对象；真实后端 `/api/scene` v3（4 栋/12 设备）配置驱动校验通过；告警管理「删除/清空已恢复」可用；W3/W7.1 断言通过；AI 真实回答 ~18s / 四千余字（本次 Agent 流式接口未上线 → **W12 自动回退普通模式**，回答头部显示「普通模式回退」，trace 展开正常）；W9.1 trace plan[]（8 次工具/7 个工具序列）正常；live action 卡片（场景新增设备取消、危险链路仅取消，`/api/scene` v3 / pending=0 未变、无清空审计）；W10 live：通知状态与 `/api/notify/status` 一致、真实 `/api/path-trace` 3 跳渲染 3D 发光路径、`/api/alerts/groups` 空态正常 |
+| `npm run build` | PASS | 28 modules，gzip JS 197.5 kB / CSS 9.2 kB |
+| `npm run verify:devices` | PASS | 5 设备 + 6 主机与后端一致（NC 在线 12 标记；本次 NC 离线 11 标记，脚本按实时数据校验） |
+| `npm run smoke`（live） | PASS | 首帧 ~0.7s；45 渲染对象；真实后端 `/api/scene` v3（4 栋/12 设备）配置驱动校验通过；W3/W7.1 断言通过（当前 NC 离线/采集陈旧，页面正确显示「后端采集陈旧」tooltip，断言兼容陈旧态）；AI 真实回答（Agent 流式接口未上线 → **W12 自动回退普通模式**，trace plan[] 正常）；live action 卡片（场景新增设备取消、危险链路仅取消，`/api/scene` v3 / pending=0 未变、无清空审计）；W10：通知状态与后端一致、NC 离线时 `/api/path-trace` 返回中文错误且前端正确降级（无 3D 残留/运行时错误）、根因分组空态正常；**W15：Agent 指标/trace/RAG 接口均未上线（404）→ 页签显示「可观测性服务未就绪」、指标卡「—」、trace 空、RAG 隐藏，无运行时错误** |
 | `npm run smoke`（demo） | PASS | 12 标记、2 个告警脉冲、演示水印/离线提示正确 |
 | `npm run smoke`（ai-offline） | PASS | 降级提示正确、AI 控件禁用、3D 场景 5+6 标记与后端一致 |
-| `npm run smoke:w9` | PASS | 动态 5 栋楼 + pending 设备、自动发现高亮、确认/撤销、告警删除→撤销→恢复、静默、清空已恢复、2 个 action 卡片、历史会话加载/删除/清空；**W10**：路径 4 跳完整 + 3 跳断点（红 ✕）+ 清除、根因分组（链路中断/成员 3/被抑制 2/suppressed_by 灰显 + 操作保留）、通知已启用 + 测试发送；**W12**：流式状态条/3 个工具 chip/49 个 token chunk（290 字，与 done.answer 完全一致）/61 个 SSE 事件顺序正确、完成后 action+trace 不变、3 条 RAG 引用（6 个角标/点击高亮）、停止生成（100 字部分内容 + 「已停止生成」且无 done）、SSE 404 回退普通模式并提示，全部通过 |
+| `npm run smoke:w9` | PASS | 动态 5 栋楼 + pending 设备、自动发现高亮、确认/撤销、告警删除→撤销→恢复、静默、清空已恢复、2 个 action 卡片、历史会话加载/删除/清空；**W10**：路径 4 跳完整 + 3 跳断点（红 ✕）+ 清除、根因分组（链路中断/成员 3/被抑制 2/suppressed_by 灰显 + 操作保留）、通知已启用 + 测试发送；**W12**：流式状态条/3 个工具 chip/49 个 token chunk（290 字，与 done.answer 完全一致）/61 个 SSE 事件顺序正确、完成后 action+trace 不变、3 条 RAG 引用（6 个角标/点击高亮）、停止生成（94 字部分内容 + 「已停止生成」且无 done）、SSE 404 回退普通模式并提示；**W15**：指标卡（546 ms / 12.5 % / 26.6 k）、20 条 trace 与红色失败标识、展开 3 条事件、仅当前会话过滤、RAG 4 指标（recall@5 86% / MRR 0.74 / 引用准确率 91% / faithfulness 88%）、三接口 404 降级与恢复，全部通过 |
 | 真实后端 UI 删除+撤销 | PASS | 通过页面删除 1 条已恢复告警并撤销：`/api/audit` 记录 `alert.delete` / `alert.restore`（operator=web-ui） |
-| 真实 W10 联调 | PASS | `/api/path-trace` 192.168.20.10→192.168.50.10 返回完整 3 跳（1.0s，缓存命中），3D 发光路径 + hop 编号 + 面板端口正常；`/api/notify/status` enabled/type/sent_count 正常；`/api/alerts/groups` 空态正常 |
-| 真实 W12 回退 | PASS | 真实 Agent `/api/chat/stream` 尚未上线（404）→ 前端自动回退 `/api/chat`，页面显示「⚠ 流式接口不可用…已自动切换普通模式」，回答/trace 正常，无运行时错误；接口上线后前端自动启用流式（smoke live 已就绪分支） |
+| 真实 W10 联调 | PASS | 网络正常时 `/api/path-trace` 返回完整 3 跳并渲染 3D 发光路径；本次 NC 离线时返回中文错误（「NC 退避中…」），前端正确降级不残留路径；`/api/notify/status` 正常；`/api/alerts/groups` 空态正常 |
+| 真实 W12 回退 | PASS | 真实 Agent `/api/chat/stream` 尚未上线（404）→ 自动回退 `/api/chat`，页面显示「⚠ 流式接口不可用…已自动切换普通模式」，回答/trace 正常，无运行时错误 |
+| 真实 W15 降级 | PASS | Agent `/api/metrics/agent`、`/api/traces`、`/api/rag/report` 均未上线（404）→ 可观测性页签显示降级提示、指标卡「—」、trace 空、RAG 卡隐藏，无运行时错误；接口上线后前端自动展示（smoke live 已就绪分支）。测试中修正了 smoke 对「NC 离线/采集陈旧」与「路径追踪返回 ok:false」两种真实环境变化的兼容断言 |
 
 > 当前后端真实数据恰好带 1 条 `stale_source=true` 的 PC-JX1 issue（NC 记录滞后、数据源已恢复），
 > 冒烟以此做真实数据断言；若后端无 stale issue，该组断言会输出 `[INFO]` 跳过，不影响其余检查。
@@ -502,6 +530,10 @@ Agent action 卡片（危险红色 + 取消 + 确认执行结果）、历史会�
   （get_health/get_devices/get_alerts）+ 逐 token 粗渲染内容 + 「停止生成」按钮 + 流式徽标。
 - `docs/screenshot-w12-rag.png`：W12 RAG 引用：回答 `[K1]/[K2]` 可点击角标 +「参考知识（3）」
   折叠区（标题/来源/相关度/摘要）+ 点击角标高亮 K1 条目。
+- `docs/screenshot-w15-observability.png`：W15 可观测性页签：3 个指标卡（546 ms / 12.5 % / 26.6 k）、
+  最近 trace 列表（时间/事件/工具/耗时/成功失败标识）+ 第一条 trace 展开事件序列（tool_call 42ms /
+  model_response 63ms / final_answer 31ms）+ RAG 评测卡（recall@5 86% / MRR 0.74 / 引用准确率 91% /
+  faithfulness 88%）。
 - `docs/screenshot-demo.png`：后端离线 + 演示数据模式（水印、离线提示、活跃/已恢复告警、脉冲光环）。
 
 > 截图为 headless Edge 在 1600×900 窗口下的实际渲染结果（页面视口约 1570×805，无人工修图）。
@@ -518,6 +550,8 @@ Agent action 卡片（危险红色 + 取消 + 确认执行结果）、历史会�
 - 数据刷新时只在设备集合变化时增删对象，状态变化仅原地更新材质颜色，不重建场景；
 - AI 流式 token 采用 80ms 节流「粗渲染」（仅处理标题/列表/加粗/行内代码），结束时一次性完整
   Markdown 渲染 + XSS 转义；停止生成使用 AbortController 立即中断 fetch 流；
+- W15 可观测性页签懒加载（仅打开时请求 3 个接口），页面常驻 3D 渲染不受影响；trace 列表最多 20 行，
+  展开详情按需加载单个 trace；接口 404 时只降级该页签，不产生额外轮询；
 - AI 面板与 3D 大屏解耦：AI 请求在独立面板内异步执行，不影响渲染帧率与数据轮询；
   Agent 未启动时只做短超时（5s）健康检查失败，不会阻塞首屏。
 
@@ -546,6 +580,10 @@ Agent action 卡片（危险红色 + 取消 + 确认执行结果）、历史会�
 | AI 回答顶部显示「普通模式回退」 | Agent 的 `/api/chat/stream` 未上线或流式中断，前端自动回退非流式（实测无 404 时专属提示）；接口上线后自动走流式。 |
 | 流式回答中途点「停止生成」 | 使用 AbortController 中断 SSE，保留已生成内容并标注「已停止生成」；不会回退重发请求。 |
 | 回答没有「参考知识」区 | 本次回答未命中 RAG 知识库（`trace.retrieval.hits` 为空）；命中时 `[K1]/[K2]` 会变为可点击角标。 |
+| 可观测性页签显示「服务未就绪」/指标卡「—」 | Agent 的 `/api/metrics/agent`、`/api/traces`、`/api/rag/report` 尚未上线（404）；仅该页签降级，其它功能正常，接口上线后点「刷新」即可。 |
+| 可观测性 trace 列表为空 | `GET /api/traces` 无记录；勾选「仅当前会话」时若还没有 AI 会话会提示无法过滤；取消勾选可看全部。 |
+| RAG 评测卡不显示 | `/api/rag/report` 未就绪/404 时按设计隐藏；该卡只在有评测报告时展示。 |
+| 后端采集状态显示「陈旧」/路径追踪报 NC 错误 | NC（PT）离线或 Real World Access 关闭；后端会退避重试，恢复后告警/路径自动正常，前端已正确降级提示。 |
 
 ## 后续可扩展
 

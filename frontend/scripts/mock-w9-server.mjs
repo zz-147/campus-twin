@@ -36,6 +36,8 @@ function seedState() {
     sceneVersion: 3,
     // W12：SSE 流式接口模拟模式（ok / 404 / error，由 /__mock/stream_mode 切换）
     streamMode: 'ok',
+    // W15：可观测性接口模拟模式（ok / 404 / no_rag，由 /__mock/w15_mode 切换）
+    w15Mode: 'ok',
     audit: [],
     alerts: [
       {
@@ -548,6 +550,93 @@ function buildMockTrace(question, answer, citations, actionsCount = 0) {
 }
 
 // --------------------------------------------------------------------------- //
+// W15：可观测性（traces / metrics / RAG 评测）mock 数据
+// --------------------------------------------------------------------------- //
+function w15Traces() {
+  const tools = ['get_health', 'get_devices', 'get_alerts', 'get_issues', 'get_hosts', 'get_topology', 'get_device_detail', 'trace_path'];
+  const eventNames = ['tool_call', 'model_response', 'tool_call', 'final_answer'];
+  const baseTs = NOW() - 900;
+  const conversationIds = state.conversations.length
+    ? state.conversations.map((conversation) => conversation.id)
+    : ['conv-1', 'conv-2', 'conv-3'];
+  const items = [];
+  for (let index = 0; index < 24; index += 1) {
+    const ok = index % 7 !== 3;
+    items.push({
+      trace_id: `tr-${1000 + index}`,
+      conversation_id: conversationIds[index % conversationIds.length],
+      step: (index % 4) + 1,
+      event: eventNames[index % eventNames.length],
+      tool: tools[index % tools.length],
+      provider: 'mock',
+      model: 'mock-rules',
+      tokens_in: 700 + index * 13,
+      tokens_out: 180 + index * 7,
+      latency_ms: 120 + ((index * 37) % 900),
+      ok,
+      error: ok ? '' : `mock tool error #${index}`,
+      ts: baseTs + index * 22,
+    });
+  }
+  return items;
+}
+
+function w15TraceDetail(traceId) {
+  const items = w15Traces();
+  const item = items.find((trace) => trace.trace_id === traceId) || items[0];
+  const steps = [
+    { step: 1, event: 'tool_call', tool: item.tool, latency_ms: 42, ok: true, tokens_in: item.tokens_in, tokens_out: 0, ts: item.ts },
+    { step: 2, event: 'model_response', tool: '', latency_ms: 63, ok: true, tokens_in: 0, tokens_out: 0, ts: item.ts + 20 },
+    { step: 3, event: 'final_answer', tool: '', latency_ms: 31, ok: item.ok, error: item.error, tokens_in: 0, tokens_out: item.tokens_out, ts: item.ts + 40 },
+  ];
+  return {
+    trace_id: item.trace_id,
+    conversation_id: item.conversation_id,
+    latency_ms: item.latency_ms,
+    tokens_in: item.tokens_in,
+    tokens_out: item.tokens_out,
+    tool_calls: item.tool ? 1 : 0,
+    ok: item.ok,
+    error: item.error,
+    steps,
+  };
+}
+
+function w15Metrics() {
+  const items = w15Traces();
+  const calls = items.length;
+  const avgLatency = items.reduce((sum, item) => sum + item.latency_ms, 0) / calls;
+  const errors = items.filter((item) => !item.ok).length;
+  const tokensTotal = items.reduce((sum, item) => sum + item.tokens_in + item.tokens_out, 0);
+  return {
+    avg_latency_ms: Math.round(avgLatency * 10) / 10,
+    tool_error_rate: Math.round((errors / calls) * 1000) / 1000,
+    tokens_total: tokensTotal,
+    calls,
+    by_day: [
+      { date: '2026-10-29', calls: 12, tokens: Math.round(tokensTotal * 0.42), errors: 2 },
+      { date: '2026-10-30', calls: calls - 12, tokens: Math.round(tokensTotal * 0.58), errors: errors - 2 },
+    ],
+    by_model: [
+      { model: 'mock-rules', calls, tokens: tokensTotal, avg_latency_ms: Math.round(avgLatency) },
+      { model: 'deepseek-flash', calls: 6, tokens: Math.round(tokensTotal * 0.6), avg_latency_ms: 780 },
+    ],
+  };
+}
+
+function w15RagReport() {
+  return {
+    recall_at_5: 0.86,
+    mrr: 0.74,
+    citation_accuracy: 0.91,
+    faithfulness: 0.88,
+    samples: 24,
+    generated_at: NOW(),
+    source: 'mock',
+  };
+}
+
+// --------------------------------------------------------------------------- //
 // Backend mock
 // --------------------------------------------------------------------------- //
 const backendServer = createServer(async (req, res) => {
@@ -956,6 +1045,53 @@ const agentServer = createServer(async (req, res) => {
     state.streamMode =
       payload.mode === '404' || payload.mode === 'error' ? payload.mode : 'ok';
     json(res, 200, { ok: true, mode: state.streamMode });
+    return;
+  }
+  // W15：可观测性接口模式（ok / 404 / no_rag）
+  if (path === '/__mock/w15_mode' && req.method === 'POST') {
+    const payload = await readBody(req);
+    state.w15Mode =
+      payload.mode === '404' || payload.mode === 'no_rag' ? payload.mode : 'ok';
+    json(res, 200, { ok: true, mode: state.w15Mode });
+    return;
+  }
+  if (path === '/api/metrics/agent' && req.method === 'GET') {
+    if (state.w15Mode === '404') {
+      json(res, 404, { detail: 'Not Found' });
+      return;
+    }
+    json(res, 200, w15Metrics());
+    return;
+  }
+  if (path === '/api/traces' && req.method === 'GET') {
+    if (state.w15Mode === '404') {
+      json(res, 404, { detail: 'Not Found' });
+      return;
+    }
+    const conversationId = url.searchParams.get('conversation_id');
+    const limit = Math.min(100, Math.max(1, Number(url.searchParams.get('limit')) || 20));
+    const items = w15Traces()
+      .filter((item) => !conversationId || item.conversation_id === conversationId)
+      .sort((a, b) => b.ts - a.ts)
+      .slice(0, limit);
+    json(res, 200, { count: items.length, items });
+    return;
+  }
+  if (path.startsWith('/api/traces/') && req.method === 'GET') {
+    if (state.w15Mode === '404') {
+      json(res, 404, { detail: 'Not Found' });
+      return;
+    }
+    const traceId = decodeURIComponent(path.split('/').filter(Boolean)[2]);
+    json(res, 200, w15TraceDetail(traceId));
+    return;
+  }
+  if (path === '/api/rag/report' && req.method === 'GET') {
+    if (state.w15Mode === '404' || state.w15Mode === 'no_rag') {
+      json(res, 404, { detail: 'Not Found' });
+      return;
+    }
+    json(res, 200, w15RagReport());
     return;
   }
   if (path === '/api/chat' && req.method === 'POST') {

@@ -31,6 +31,7 @@ import { Hud } from './ui/hud.js';
 import { AiPanel } from './ui/aiPanel.js';
 import { NewDevicesBanner } from './ui/newDevices.js';
 import { PathPanel } from './ui/pathPanel.js';
+import { ObservabilityPanel } from './ui/observability.js';
 import { confirmDialog } from './ui/dialog.js';
 
 /** 页面运行态（不含任何设备数据；设备数据只在 snapshot 里） */
@@ -59,6 +60,7 @@ let agent = null;
 let admin = null;
 let newDeviceBanner = null;
 let pathPanel = null;
+let obsPanel = null;
 
 // --------------------------------------------------------------------------- //
 // 启动
@@ -112,6 +114,17 @@ function boot() {
       hud?.toast('数据已刷新');
       client?.refresh();
     },
+  });
+
+  // W15-P2：可观测性页签（懒加载，不阻塞主流程；接口未就绪时仅该页签降级）
+  obsPanel = new ObservabilityPanel(document, {
+    onLoad: (options) => loadObservabilityData(options),
+    onLoadTrace: (traceId) => agent.trace(traceId),
+    onChange: () => updateDebugStats(),
+  });
+  document.getElementById('tab-obs')?.addEventListener('click', () => {
+    obsPanel.setCurrentConversation(aiPanel?.conversationId || null);
+    obsPanel.load();
   });
 
   try {
@@ -175,6 +188,9 @@ function boot() {
     },
     get pathPanel() {
       return pathPanel;
+    },
+    get obsPanel() {
+      return obsPanel;
     },
   };
 
@@ -400,6 +416,7 @@ function clearSceneData() {
   hud.setDemo(false);
   hud.setGroupsHint('');
   newDeviceBanner?.update([], []);
+  obsPanel?.reset();
   updateDebugStats();
 }
 
@@ -662,6 +679,33 @@ async function handleNotifyTest() {
 }
 
 // --------------------------------------------------------------------------- //
+// W15-P2：可观测性数据加载（metrics / traces / RAG；接口 404 时返回错误由面板降级）
+// --------------------------------------------------------------------------- //
+async function loadObservabilityData({ filterCurrent = false, conversationId = null } = {}) {
+  if (!agent) return {};
+  const targetConversation = filterCurrent ? conversationId : null;
+  const [metricsResult, tracesResult, ragResult] = await Promise.allSettled([
+    agent.metricsAgent(),
+    targetConversation
+      ? agent.traces({ conversationId: targetConversation, limit: 20 })
+      : agent.traces({ limit: 20 }),
+    agent.ragReport(),
+  ]);
+  const pick = (result) => (result.status === 'fulfilled' ? result.value : null);
+  const pickError = (result) => (result.status === 'rejected' ? result.reason : null);
+  const noConversation = filterCurrent && !targetConversation;
+  return {
+    metrics: pick(metricsResult),
+    metricsError: pickError(metricsResult),
+    traces: noConversation ? { count: 0, items: [] } : pick(tracesResult),
+    tracesError: noConversation ? null : pickError(tracesResult),
+    rag: pick(ragResult),
+    ragError: pickError(ragResult),
+    noConversation,
+  };
+}
+
+// --------------------------------------------------------------------------- //
 // 自测辅助：把场景/数据/AI 统计写进隐藏节点，便于 --dump-dom / 控制台核对
 // --------------------------------------------------------------------------- //
 function updateDebugStats() {
@@ -674,6 +718,7 @@ function updateDebugStats() {
   const sceneMeta = state.snapshot?.sceneMeta || {};
   const notify = state.snapshot?.notifyStatus || null;
   const streamDebug = aiPanel?.getStreamDebug?.() || null;
+  const obsDebug = obsPanel?.getDebug?.() || null;
   const groupSuppressed = Array.isArray(state.alertGroups)
     ? state.alertGroups.reduce(
         (sum, group) => sum + (Number(group.suppressed_count) || (group.members || []).filter((m) => m.suppressed_by).length),
@@ -729,6 +774,13 @@ function updateDebugStats() {
     aiStreamStopped: Boolean(streamDebug?.stopped),
     aiStreamFallback: Boolean(streamDebug?.fallback),
     aiCitations: streamDebug?.citations ?? 0,
+    // W15：可观测性页签
+    obsLoaded: Boolean(obsDebug?.loaded),
+    obsMetricsAvailable: Boolean(obsDebug?.metricsAvailable),
+    obsTracesCount: obsDebug?.tracesCount ?? 0,
+    obsRagAvailable: Boolean(obsDebug?.ragAvailable),
+    obsExpanded: obsDebug?.expanded ?? 0,
+    obsError: obsDebug?.error ?? '',
     // W10：路径追踪 / 告警根因分组 / 通知状态
     pathActive: Boolean(pathStats.active),
     pathHops: pathStats.hops ?? 0,

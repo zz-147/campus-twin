@@ -1,4 +1,4 @@
-# campus-twin AI 运维 Agent（W5-6 + W9 + W10 + W11 + W12 + W12.1 + W12.2 + W13）
+# campus-twin AI 运维 Agent（W5-6 + W9 + W10 + W11 + W12 + W12.1 + W12.2 + W13 + W15 + W15-P1）
 
 校园网数字孪生平台的 AI 运维 Agent：
 
@@ -45,8 +45,9 @@
   filesystem 只读白名单（configs/docs）、memory 本地知识图谱；工具 `ok=false` 优雅降级；
 - **SSE 流式对话**：`POST /api/chat/stream`（text/event-stream）逐段推送回答与工具/action 事件；
   非流式 `/api/chat` 保留；客户端断开安全停止；LangGraph 与 classic 双引擎都支持；
-- **轻量 RAG（检索增强 + 引用）**：内置 18 个知识分块（配置模板/IP-VLAN 规划/故障 runbook/项目约束），
-  字符 bigram + 关键词加权 BM25-lite 检索；命中内容带 `[K1]..` 引用，无命中不编造；不联网、不读用户目录；
+- **轻量 RAG（检索增强 + 引用）**：W15 扩到 **107 个知识分块**（56 篇文档，配置模板/IP-VLAN 规划/故障 runbook/项目约束），
+  **hybrid 检索 = BM25 + 哈希向量（feature hashing）+ RRF + 轻量 rerank**；命中内容带 `[K1]..` 引用，
+  无命中不编造；不联网、不读用户目录、不依赖 torch/faiss；
 - **双编排引擎**：`AGENT_ENGINE=langgraph`（默认，StateGraph + checkpointer + interrupt）/
   `classic`（W10 原 Orchestrator，可回退）；同一套工具/角色/action/会话/评测；
 - **多 Agent 编排 + 工具白名单隔离**：主 Agent 只做路由与汇总，子 Agent 各自只读、各带工具白名单；
@@ -81,8 +82,16 @@ campus-twin/agent/
 │       ├── mcp_client.py        # W13 MCP Bridge HTTP 客户端 + 健康探测
 │       ├── routing.py           # W12.1 规则优先路由（写操作确定性短路，trace route_source）
 │       ├── streaming.py         # W12 SSE 流式（事件契约/token 桥接/断开安全）
-│       ├── rag/                 # ★ W12 轻量 RAG
-│       │   ├── corpus.py        #   内置知识库 18 个分块（配置/拓扑/runbook/项目约束）
+│       ├── resilience.py        # W15-P1 重试/熔断/幂等/脏数据归一化（工具调用封装）
+│       ├── observability.py     # W15-P1 trace_events（SQLite）+ turn/node/tool/llm 埋点
+│       ├── recovery_demo.py     # W15-P1 interrupt→进程重启→checkpointer 恢复演示
+│       ├── rag/                 # ★ W12/W15 RAG
+│       │   ├── corpus.py        #   56 篇原始文档 + 107 个 section chunk（核心 18 块 id/text 不变）
+│       │   ├── corpus_ext.py    #   W15 扩展语料（配置/拓扑/runbook/约束/MCP/评测）
+│       │   ├── chunking.py      #   W15 三种 chunking：fixed / section / semantic
+│       │   ├── vector_store.py  #   W15 哈希嵌入 + 内存向量库（JSON 持久化，可换 Chroma/FAISS）
+│       │   ├── hybrid.py        #   W15 BM25+向量 RRF 融合 + 轻量 rerank
+│       │   ├── eval_rag.py      #   W15 RAG 评测 CLI（48 query / 4 配置 / 3 chunking）
 │       │   ├── index.py         #   字符 bigram + 关键词加权 BM25-lite 检索
 │       │   └── retriever.py     #   search/[K1] 上下文/引用/无命中规范
 │       ├── backend.py           # HTTP 后端 client（只读 + W9 写，X-Operator）/ fixture client
@@ -326,7 +335,7 @@ mock baseline（当前评测集，`report.json` 可复查）：
 |---|---|---|
 | `POST` | `/api/chat` | `{question, conversation_id?, provider?, model?}` → `{answer, trace, provider, model, elapsed_ms, conversation_id, actions[]}`（LangGraph 时内部跑图；interrupt 时返回 pending actions） |
 | `POST` | `/api/chat/stream` | W12 SSE（`text/event-stream`）：meta / status / tool / token / action / done / error；非流式 `/api/chat` 保留 |
-| `GET` | `/api/health` | 服务/provider/后端/W9-W13 健康状态（含 `engine`、`graph`、`streaming`、`rag`、`mcp_bridge`，不含 key） |
+| `GET` | `/api/health` | 服务/provider/后端/W9-W15 健康状态（含 `engine`、`graph`、`streaming`、`rag`、`mcp_bridge`、`observability`，不含 key） |
 | `GET` | `/api/providers` | provider 能力清单与切换方式 |
 | `GET` | `/api/roles` | 1 主 + 4 子 Agent、工具白名单、action 类型、归属推断规则、图节点、RAG/SSE 能力 |
 | `GET` | `/api/conversations` | 会话列表（id/title/时间/消息数/预览） |
@@ -339,6 +348,10 @@ mock baseline（当前评测集，`report.json` 可复查）：
 | `POST` | `/api/actions/{id}/cancel` | 取消 action（LangGraph 时同样恢复图，走 cancel 分支） |
 | `GET` | `/api/eval/scenarios` | 38 场景评测集 |
 | `GET` | `/api/eval/report` | 最近一次评测报告 |
+| `GET` | `/api/traces?conversation_id=&limit=` | W15-P1 trace 列表（`{count, items[], traces[]}`；items 字段与前端契约对齐） |
+| `GET` | `/api/traces/{trace_id}` | 单条 trace 汇总 + 事件序列（`summary/steps/events`，不存在 404） |
+| `GET` | `/api/metrics/agent` | 平均延迟/工具错误率/token/calls/by_day/by_model |
+| `GET` | `/api/rag/report` | W15 RAG 评测指标（未生成时 404，前端隐藏面板） |
 | `GET` | `/docs` | OpenAPI 文档 |
 
 ---
@@ -492,13 +505,17 @@ flowchart TD
 - 断开安全：客户端断开时停止推送并清理 token 回调/任务；流式异常只发 `error` 事件；
 - `AGENT_ENGINE=classic` 同样支持 SSE（降级为切片推送 token）；`/api/chat` 非流式保留。
 
-**轻量 RAG**（`app/agent/rag/`，无向量库、不联网、不读用户目录）：
+**轻量 RAG**（`app/agent/rag/`，无网络、无 torch/faiss、不读用户目录）：
 
 | 模块 | 内容 |
 |---|---|
-| `corpus.py` | 内置 18 个知识分块：设备配置模板（2960/3650/4331 命令）、校园网 IP/VLAN/拓扑规划（来自 `docs/校园网络拓扑设计.md`）、故障 runbook（端口 down/链路断/路由缺失/VLAN 错/广播风暴）、项目约束（NC 告警滞后、时间基准、路径追踪限制、告警抑制、action 协议、SSE 契约、无编造规范） |
+| `corpus.py` + `corpus_ext.py` | **56 篇原始文档 → 107 个 section chunk**：设备配置模板（2960/3650/4331 命令）、校园网 IP/VLAN/拓扑规划、9 类故障 runbook、项目约束（NC 滞后/双时间/告警生命周期/抑制/软删除/action/SSE/LangGraph/MCP/评测/部署），每条带 id/title/source/section/text/length |
+| `chunking.py` | W15 三种策略：**fixed**（240 字 + 40 overlap）/ **section**（按标题章节，运行时默认）/ **semantic**（段落合并到目标长度 + 标题/章节前缀） |
 | `index.py` | 字符 unigram + bigram + 英文/数字 token，标题/来源加权、BM25(k1=1.5,b=0.75)、短语 bonus、疑问停用词、`min_score` 阈值（无关问题返回空） |
-| `retriever.py` | `search(top_k=5)` / `format_context` / `[K1]..` 引用块 / `no_hit_answer` / `retrieval_record` |
+| `vector_store.py` | **哈希嵌入（feature hashing，默认 384 维，可配 256/512，L2 归一化）+ 内存向量库（余弦检索、JSON persist/load）**；`VectorStoreProtocol` 与 `EmbedderProtocol` 预留 Chroma/FAISS/BGE 替换 |
+| `hybrid.py` | BM25 与向量结果 **RRF(k=60) 融合 + 轻量 rerank**（词项覆盖率/标题/章节/短语/BM25 归一化） |
+| `retriever.py` | `search(top_k=5)`（默认 hybrid_rerank）/ `format_context` / `[K1]..` 引用块 / `no_hit_answer` / `retrieval_record`（含 bm25/vector/hybrid/rerank 分数） |
+| `eval_rag.py` | W15 评测闭环：48 query × 3 chunking × 4 配置，输出 recall@5/MRR/引用准确率/引用可溯源率/faithfulness |
 
 - 新增只读工具 `search_knowledge(query, top_k)`（`ALL_TOOL_NAMES` 共 23 个）；
 - 诊断 / 接入引导 / 路径追踪 / 告警分组节点在调用 LLM 前自动检索 top_k=5：
@@ -506,7 +523,7 @@ flowchart TD
   mock/确定性节点在答案末尾追加 `## 知识库引用`；引用只来自内置 corpus，禁止编造；
 - 无命中：知识型问题直接回答“知识库无相关内容”，不做硬套排障；普通故障问题追加
   “知识库无相关内容（本回答基于实时工具数据）”，不编造文档/密码/参数；
-- `trace.retrieval` 记录每个节点的 query/命中 id/score/title/source/citation，
+- `trace.retrieval` 记录每个节点的 query/命中 id/score/title/source/citation + 四路分数，
   `trace.knowledge` 汇总 retriever/corpus/hit_count；健康接口 `/api/health.rag` 可查看。
 
 ### 7.8 W12.1：写操作意图确定性路由（`app/agent/routing.py`）
@@ -584,6 +601,83 @@ flowchart LR
 - **启动**：`campus-twin/mcp_bridge/README.md`（`bridge.py --port 8200`；`verify_bridge.py` 端到端验证；
   `tests/test_bridge.py` 单测）；Agent 侧 `MCP_BRIDGE_BASE` 可配置。
 
+### 7.10 W15：RAG 评测闭环（100+ 语料 / 3 chunking / hybrid+rerank）
+
+**为什么不用神经网络 embedding（如实说明）**：本机 pip 曾被系统代理卡死，无法安装
+torch/sentence-transformers/chromadb/faiss，也不能联网下载 BGE 等模型；因此采用
+**纯标准库 feature hashing**（哈希嵌入）+ 内存向量库。它不是语义 embedding，泛化能力有限，
+但零依赖、确定性、可离线复现；接口已按 `VectorStoreProtocol`（add/search/persist/load）与
+`EmbedderProtocol` 预留，后续装 faiss/chromadb + BGE 可直接替换，无需改 hybrid/rerank。
+（faiss-cpu wheel 已在 `logs/pipcheck6/` 可离线安装；本任务未装，避免 numpy 升级影响既有测试。）
+
+**语料**：56 篇原始文档 → 107 个 section chunk（核心 18 块 id/title/text 保持不变），
+覆盖配置/拓扑/故障/约束/MCP/评测 6 类。
+
+**chunking 对比**（同一批文档）：
+
+| 策略 | chunk 数 | 平均长度 | hybrid_rerank recall@5 | MRR |
+|---|---|---|---|---|
+| fixed（240+40 overlap） | 94 | 165.2 | 0.917 | 0.757 |
+| section（按章节，运行时默认） | 107 | 132.9 | 1.000 | 0.773 |
+| **semantic（段落合并+标题前缀）** | **123** | **142.7** | **1.000** | **0.861** |
+
+**4 组检索配置**（最佳 chunking = semantic，48 条 query，top5）：
+
+| 配置 | recall@5 | MRR | 引用准确率 | 引用可溯源率 | faithfulness |
+|---|---|---|---|---|---|
+| BM25 | 1.000 | 0.860 | 0.346 | 1.000 | 0.664 |
+| 向量（feature hashing） | 0.979 | 0.872 | 0.308 | 1.000 | 0.644 |
+| hybrid（RRF） | 1.000 | **0.877** | 0.325 | 1.000 | 0.657 |
+| hybrid+rerank | 1.000 | 0.861 | 0.333 | 1.000 | 0.660 |
+
+- 结论：**hybrid 提升 recall/MRR**；rerank 对 MRR 略降但引用准确率略升（如实记录，不美化）；
+  向量召回弱于 BM25，符合哈希嵌入的能力边界；faithfulness 为启发式（引用 chunk 覆盖 query
+  关键实体），后续可接 LLM judge；
+- 复现：`python -m app.agent.rag.eval_rag`（报告 `app/agent/eval/rag_report.json`，
+  含 3 策略 × 4 配置全部数字、per-query 命中与 chunk stats）；
+- 单测：`tests/test_rag_advanced.py`（8 项：语料/chunking/向量持久化/RRF/rerank/指标/报告/工具分数）。
+
+### 7.11 W15-P1：可靠性 + 可观测性（自建 trace，替代 Langfuse）
+
+**A. 可靠性层** `app/agent/resilience.py`（纯标准库，可注入到 `OpsToolkit`）：
+
+| 能力 | 默认值/行为 |
+|---|---|
+| 重试 | 超时/5xx/429，指数退避 1s、3s（默认最多 2 次，可配）；4xx 不重试 |
+| 熔断 | 同一依赖连续失败 5 次 → OPEN 60s，期间快速失败返回中文提示；冷却后 HALF_OPEN 试探，成功恢复 |
+| 幂等 | 同 key + 300s 窗口内重复请求返回缓存并标记 `cached=true`；写操作 action 本身另有 CAS |
+| 脏数据 | 非 JSON / 非 object / 无法序列化 / 超过 300k 字符 → 归一化为 `ok=false + error`，不抛栈（含超大 payload 防护） |
+
+- `OpsToolkit(..., resilience=...)` 可选启用；`/api` 启动时工具调用默认带重试/熔断封装；
+- 测试 `tests/test_resilience.py`：标准库 `http.server` 注入 timeout/500/脏 JSON/超大响应，
+  断言重试次数（500 共 3 次请求）、熔断触发/冷却恢复、幂等只打一次、错误归一化。
+
+**B. 断点恢复** `app/agent/recovery_demo.py`（离线 mock + fixture）：
+
+```powershell
+python -m app.agent.recovery_demo   # start 子进程 → 进程退出 → resume 子进程 → 确认执行
+```
+
+- start 子进程：生成 pending `clear_cleared_alerts`，图在 `wait_confirm` `interrupt()` 暂停，
+  写入 `state.json` 后退出；
+- resume 子进程：同一 conversation_id + 同一 SqliteSaver 重新建图，先断言图仍暂停，
+  再 `confirm_action` → `Command(resume=...)` 恢复并执行；
+- 实测（`app/agent/eval/recovery_report.json`）：start pid ≠ resume pid，
+  `paused_before_restart=true`、`paused_after_restart=true`、`resumed=true`、`executed=true`。
+
+**C. 自建 trace 可观测性** `app/agent/observability.py`：
+
+- 表 `trace_events`（SQLite，与 agent.db 同库）：`trace_id/conversation_id/step/event/tool/provider/model/tokens_in/tokens_out/latency_ms/ok/error/ts/meta`；
+- 一次 turn 拆成 `turn / llm / node / tool / action / interrupt` 事件；token 无 provider usage 时
+  按 `char/4` 估算并标 `estimated_tokens=true`；
+- API：
+  - `GET /api/traces?conversation_id=&limit=` → `{count, items:[...], traces:[...]}`（items 是 trace 摘要，字段与前端契约对齐）
+  - `GET /api/traces/{trace_id}` → `{trace_id, summary, steps:[...], events:[...], count}`；不存在返回 404
+  - `GET /api/metrics/agent` → `{avg_latency_ms, tool_error_rate, tokens_total, calls, by_day[], by_model[], recent_errors[]}`
+  - `GET /api/rag/report` → RAG 指标（未生成时 404，前端据此隐藏面板）
+- 与 Langfuse 的差异：当前是**自建最小 trace**，无外网/账号依赖；字段保持通用，
+  后续可加 exporter 上报 Langfuse/OTel（`meta` 可扩展），不改 Agent 主流程。
+
 ---
 
 ## 八、安全约束
@@ -617,6 +711,7 @@ LangChain Tool 包装）、W12 SSE 事件契约/token 桥接/action/断开安全
 W12.1 规则优先路由（正例/反例/优先级/trace.route_source/写操作 5 次确定性）、
 W12.2 steward 截断回归（真实 cleared/active 数量、=0 不生成 action、classic+langgraph+SSE）、
 W13 MCP 工具（schema/只读调用/白名单/优雅降级/mcp_read+mcp_tools 路由/classic+langgraph）、
+W15 RAG 评测（100+ 语料 / 3 chunking / 哈希向量 / RRF+rerank / recall@5·MRR·引用·faithfulness）、
 归属推断五级规则、会话 CRUD/续聊、
 action 状态机（确认/取消/过期/重复执行/危险操作）、执行器（清告警/删告警/静默/场景设备/楼栋/会话）、
 主 Agent 意图路由与汇总（含 W10 路由与诊断 Agent 边界）、双引擎 38 场景评测（离线 + 可重复）、
@@ -626,7 +721,11 @@ FastAPI 全部接口。
 
 | 项 | 命令 | 结果 |
 |---|---|---|
-| 单测 | `python -m pytest -q` | **256 passed**（离线） |
+| 单测 | `python -m pytest -q` | **277 passed**（离线） |
+| W15-P1 可靠性 | `pytest tests/test_resilience.py -q` | 7 项：重试/熔断/幂等/脏数据/超大响应（本地 http.server 注入） |
+| W15-P1 恢复 | `python -m app.agent.recovery_demo` | start pid≠resume pid；paused_before/after=true、resumed=true、executed=true；报告 `app/agent/eval/recovery_report.json` |
+| W15-P1 trace API | `pytest tests/test_observability.py -q` | trace_events 写入/查询/聚合；`/api/traces`、`/api/traces/{id}`、`/api/metrics/agent`、`/api/rag/report` 契约通过 |
+| W15 RAG 评测 | `python -m app.agent.rag.eval_rag` | 107 默认 chunk / 48 query / 3 chunking / 4 配置；最佳 semantic：recall@5 **1.000**、MRR **0.861**、引用准确率 **0.333**、可溯源率 **1.000**、faithfulness **0.660**；报告 `app/agent/eval/rag_report.json` |
 | MCP Bridge 单测 | `.venv-mcp314\\python -m unittest discover -s mcp_bridge/tests -v` | **10 passed**（配置/归一化/白名单/HTTP 错误处理） |
 | MCP Bridge 端到端 | `mcp_bridge/verify_bridge.py` | 真实 npx 启动 filesystem（14 tools）+ memory（9 tools）；读 `configs/core-3650.txt` PASS；memory 写入/检索 PASS；write_file 被白名单拒绝；`ALL_BRIDGE_VERIFY_PASS` |
 | W13 8101 mock MCP 实测 | 8101 + Bridge 8200：读文件 / 工具清单 | `mcp_read` 读 `configs/core-3650.txt`（2293 字符）回答 VLAN/trunk 要点；`mcp_tools` 列出 23 个外部工具（filesystem 14 + memory 9）；`mcp_calls`/actions=0 |
@@ -687,9 +786,15 @@ FastAPI 全部接口。
   mock 模式仍复用离线 mock 诊断循环，不依赖网络；
 - SSE 的 mock token 切片按 10–30 字 + 10–30ms sleep，长回答（数万字）会持续较久；
   真实 LLM token 流目前覆盖 LangGraph 诊断节点（确定性节点仍切片降级）；客户端断开安全停止；
-- 轻量 RAG 是 **BM25-lite + 内置 corpus**：不引入 embedding/向量库，语义泛化能力有限，
-  适合“项目内知识检索 + 引用溯源”；知识库仅 18 个分块，覆盖配置模板/IP-VLAN 规划/runbook/项目约束，
-  不包含用户私有文档；检索结果为空时明确说“知识库无相关内容”，不会编造；
+- 轻量 RAG 现为 **hybrid = BM25 + 哈希向量 + RRF + rerank**：不使用神经网络 embedding（环境
+  torch/pip 限制），语义泛化能力有限；知识库 **107 个分块**（56 篇文档），覆盖配置模板/IP-VLAN
+  规划/runbook/项目约束/MCP/评测，不包含用户私有文档；无命中时明确说“知识库无相关内容”；
+- 向量库当前是内存实现（JSON 持久化），适合离线评测/演示；后续可替换 Chroma/FAISS + BGE，
+  接口不变；`rag_report.json` 的 citation_precision 是“引用中相关占比”，不是生产准确率；
+- W15-P1 的 token 统计在 provider 未返回 usage 时按 `char/4` 估算并标 `estimated_tokens=true`；
+  trace 存在 SQLite（agent.db），不是 Langfuse 等平台；可加 exporter 上报，当前不联网；
+- 重试/熔断默认 2 次（1s/3s）与 60s 冷却，会增加真实依赖故障时的响应时间；
+  熔断状态下工具会快速失败并返回中文提示，Agent 诚实降级；
 - 知识库引用只来自内置 corpus 的 chunk id，评测会校验可追溯；若实时工具数据与知识库冲突，
   以实时工具数据为准并在回答中说明；
 - W12.1 规则优先层是**显式关键词匹配**：能覆盖演示高频问法（清空/删除/静默/会话/加设备/路径等），

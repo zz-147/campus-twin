@@ -5,7 +5,16 @@
 """
 
 from app.agent.rag.corpus import KNOWLEDGE_CHUNKS, chunk_count, get_chunks  # noqa: F401
+from app.agent.rag.chunking import (  # noqa: F401
+    chunk_by_sections,
+    chunk_documents,
+    chunk_fixed,
+    chunk_semantic,
+    chunk_stats,
+)
+from app.agent.rag.hybrid import HybridSearcher, rerank, search_hybrid  # noqa: F401
 from app.agent.rag.index import BM25LiteIndex, query_token_weights, tokenize  # noqa: F401
+from app.agent.rag.vector_store import HashEmbedder, InMemoryVectorStore, build_vector_store  # noqa: F401
 from app.agent.rag.retriever import (  # noqa: F401
     DEFAULT_TOP_K,
     augment_answer,

@@ -254,3 +254,59 @@ def chunk_count() -> int:
 def get_chunks() -> List[Dict[str, Any]]:
     """返回知识库副本（避免调用方修改内置数据）。"""
     return [dict(chunk) for chunk in KNOWLEDGE_CHUNKS]
+
+
+# --------------------------------------------------------------------------- #
+# W15：100+ chunk 语料（核心 18 块 id/title/text 保持不变，新增 80+ 章节块）
+# --------------------------------------------------------------------------- #
+from app.agent.rag.corpus_ext import EXTRA_DOCS  # noqa: E402
+
+#: 原始文档（供 chunking.py 做固定长度/章节/语义三种切分对比）
+LEGACY_DOCS: List[Dict[str, Any]] = [
+    {
+        "doc_id": "LEGACY-%s" % chunk["id"],
+        "title": chunk["title"],
+        "source": chunk["source"],
+        "chunk_id": chunk["id"],
+        "sections": [{"section": "概述", "text": chunk["text"]}],
+    }
+    for chunk in KNOWLEDGE_CHUNKS
+]
+SOURCE_DOCUMENTS: List[Dict[str, Any]] = LEGACY_DOCS + [dict(doc) for doc in EXTRA_DOCS]
+
+
+def _build_section_chunks(documents: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    chunks: List[Dict[str, Any]] = []
+    for doc in documents:
+        doc_id = str(doc.get("doc_id") or "doc")
+        doc_title = str(doc.get("title") or doc_id)
+        source = str(doc.get("source") or "项目约束")
+        for index, section in enumerate(doc.get("sections") or [], start=1):
+            text = str(section.get("text") or "").strip()
+            if not text:
+                continue
+            section_name = str(section.get("section") or "概述")
+            chunk_id = str(
+                doc.get("chunk_id") or "K-%s-S%02d" % (doc_id, index)
+            )
+            chunks.append(
+                {
+                    "id": chunk_id,
+                    "doc_id": doc_id,
+                    "source": source,
+                    "title": doc_title,
+                    "section": section_name,
+                    "text": text,
+                    "length": len(text),
+                }
+            )
+    return chunks
+
+
+#: 默认（章节切分）语料：原有 18 块 + 扩展语料，共 100+ 块
+KNOWLEDGE_CHUNKS = _build_section_chunks(SOURCE_DOCUMENTS)
+
+
+def source_documents() -> List[Dict[str, Any]]:
+    """原始文档副本（chunking 对比/评测用）。"""
+    return [dict(doc) for doc in SOURCE_DOCUMENTS]

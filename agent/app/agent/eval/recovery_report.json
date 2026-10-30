@@ -1,0 +1,52 @@
+{
+  "generated_at": "2026-10-30T23:13:51.070",
+  "scenario": "写操作 interrupt 暂停 → 进程重启 → SqliteSaver 恢复 → 用户确认执行",
+  "provider": "mock",
+  "backend": "fixture",
+  "process_restarted": true,
+  "workdir": "D:\\zdsh\\campus-twin\\agent\\data\\recovery-demo-ehdlhqu1",
+  "events": [
+    {
+      "workdir": "D:\\zdsh\\campus-twin\\agent\\data\\recovery-demo-ehdlhqu1",
+      "conversation_id": "conv_bb07971ad067",
+      "action_id": "act_9fac6f1a1d23",
+      "action_type": "clear_cleared_alerts",
+      "paused": true,
+      "route_source": "rule",
+      "process": "start",
+      "pid": 40880,
+      "started_at": "2026-10-30T23:13:48.938",
+      "elapsed_ms": 1335.13,
+      "pending_count": 1,
+      "event": "interrupt_paused",
+      "child_returncode": 0,
+      "phase_order": 1,
+      "process_boundary": "started"
+    },
+    {
+      "process": "resume",
+      "pid": 42452,
+      "conversation_id": "conv_bb07971ad067",
+      "action_id": "act_9fac6f1a1d23",
+      "paused_before_resume": true,
+      "resumed": true,
+      "executed": true,
+      "action_status": "executed",
+      "started_at": "2026-10-30T23:13:50.956",
+      "elapsed_ms": 148.4,
+      "event": "resumed_and_executed",
+      "child_returncode": 0,
+      "phase_order": 2,
+      "process_boundary": "restarted"
+    }
+  ],
+  "checks": {
+    "paused_before_restart": true,
+    "new_process_pid": 42452,
+    "start_process_pid": 40880,
+    "paused_after_restart": true,
+    "resumed": true,
+    "executed": true
+  },
+  "elapsed_ms": 4030.45
+}

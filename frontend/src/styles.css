@@ -3026,3 +3026,319 @@ body {
   font-size: 9.5px;
   line-height: 1.45;
 }
+
+/* ==========================================================================
+   W15-P2：可观测性页签（metrics / traces / RAG 评测）
+   ========================================================================== */
+.dock-pane.obs-pane {
+  display: none;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+}
+.dock-pane.obs-pane.active {
+  display: flex;
+}
+.obs-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.obs-title {
+  color: #eaf7ff;
+  font-size: 12.5px;
+  font-weight: 700;
+}
+.obs-sub {
+  color: #5f7fa4;
+  font-size: 9.5px;
+  font-weight: 400;
+}
+.obs-status {
+  padding: 5px 8px;
+  border: 1px dashed rgba(76, 201, 240, 0.28);
+  border-radius: 7px;
+  color: #8fb0cc;
+  font-size: 10px;
+  line-height: 1.5;
+}
+.obs-status.ok {
+  border-color: rgba(56, 224, 138, 0.4);
+  color: #8fe3b0;
+}
+.obs-status.warn {
+  border-color: rgba(255, 200, 87, 0.45);
+  color: #ffce6b;
+}
+.obs-status.error {
+  border-color: rgba(255, 82, 102, 0.5);
+  color: #ffb3bc;
+}
+.obs-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+.obs-metric {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 7px 8px;
+  border: 1px solid rgba(61, 140, 220, 0.3);
+  border-radius: 8px;
+  background: rgba(9, 24, 40, 0.72);
+}
+.obs-metric-label {
+  color: #7f9bb8;
+  font-size: 9px;
+}
+.obs-metric-value {
+  color: #eaf7ff;
+  font-family: var(--mono);
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+.obs-metric-sub {
+  overflow: hidden;
+  color: #5f7fa4;
+  font-size: 8.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.obs-metric.available {
+  border-color: rgba(76, 201, 240, 0.4);
+}
+.obs-metric.unavailable {
+  opacity: 0.65;
+  border-style: dashed;
+}
+.obs-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: #9fd6f5;
+  font-size: 10.5px;
+  font-weight: 600;
+}
+.obs-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: #7f9bb8;
+  font-size: 9.5px;
+  font-weight: 400;
+  cursor: pointer;
+}
+.obs-filter input {
+  accent-color: #4cc9f0;
+}
+.obs-traces {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+.obs-empty {
+  flex-shrink: 0;
+  padding: 12px 8px;
+  color: #5f7fa4;
+  font-size: 10.5px;
+  text-align: center;
+}
+.obs-trace {
+  flex-shrink: 0;
+  border: 1px solid rgba(61, 140, 220, 0.24);
+  border-radius: 7px;
+  background: rgba(9, 22, 38, 0.65);
+  overflow: hidden;
+}
+.obs-trace.bad {
+  border-color: rgba(255, 82, 102, 0.35);
+}
+.obs-trace.expanded {
+  border-color: rgba(76, 201, 240, 0.5);
+}
+.obs-trace-head {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr) auto;
+  grid-template-areas:
+    'time event status'
+    'time tool latency';
+  align-items: center;
+  gap: 1px 6px;
+  width: 100%;
+  padding: 5px 7px;
+  border: 0;
+  background: transparent;
+  color: #dcecff;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.obs-trace-head:hover {
+  background: rgba(76, 201, 240, 0.06);
+}
+.obs-trace-time {
+  grid-area: time;
+  color: #7f9bb8;
+  font-family: var(--mono);
+  font-size: 9.5px;
+}
+.obs-trace-event {
+  grid-area: event;
+  overflow: hidden;
+  font-size: 10.5px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.obs-trace-tool {
+  grid-area: tool;
+  overflow: hidden;
+  color: #8fb0cc;
+  font-family: var(--mono);
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.obs-trace-latency {
+  grid-area: latency;
+  color: #9fd6f5;
+  font-family: var(--mono);
+  font-size: 9px;
+}
+.obs-trace-status {
+  grid-area: status;
+  font-size: 10px;
+}
+.obs-trace-status.ok {
+  color: #38e08a;
+}
+.obs-trace-status.bad {
+  color: #ff5266;
+}
+.obs-trace-caret {
+  display: none;
+}
+.obs-trace-detail {
+  padding: 4px 8px 7px;
+  border-top: 1px dashed rgba(61, 140, 220, 0.22);
+}
+.obs-trace-summary {
+  margin-bottom: 4px;
+  color: #9fd6f5;
+  font-size: 9.5px;
+  line-height: 1.5;
+}
+.obs-trace-events {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.obs-trace-event-row {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr) auto;
+  grid-template-areas:
+    'step name latency'
+    'step tool ok';
+  gap: 0 6px;
+  padding: 3px 5px;
+  border-left: 2px solid rgba(56, 224, 138, 0.45);
+  background: rgba(8, 20, 34, 0.6);
+  font-size: 9px;
+}
+.obs-trace-event-row.bad {
+  border-left-color: rgba(255, 82, 102, 0.6);
+}
+.obs-trace-event-step {
+  grid-area: step;
+  color: #5f7fa4;
+  font-family: var(--mono);
+}
+.obs-trace-event-name {
+  grid-area: name;
+  color: #dcecff;
+}
+.obs-trace-event-tool {
+  grid-area: tool;
+  color: #8fb0cc;
+  font-family: var(--mono);
+}
+.obs-trace-event-latency {
+  grid-area: latency;
+  color: #9fd6f5;
+  font-family: var(--mono);
+}
+.obs-trace-event-ok {
+  grid-area: ok;
+  color: #8fe3b0;
+  text-align: right;
+}
+.obs-trace-event-row.bad .obs-trace-event-ok {
+  color: #ff9aa5;
+}
+.obs-trace-detail-loading,
+.obs-trace-detail-error {
+  padding: 4px 2px;
+  color: #7f9bb8;
+  font-size: 9.5px;
+}
+.obs-trace-detail-error {
+  color: #ff9aa5;
+}
+.obs-rag {
+  padding: 7px 8px;
+  border: 1px solid rgba(125, 123, 255, 0.32);
+  border-radius: 8px;
+  background: rgba(16, 18, 46, 0.6);
+}
+.obs-rag-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 5px;
+  margin-top: 5px;
+}
+.obs-rag-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 7px;
+  border: 1px solid rgba(125, 123, 255, 0.25);
+  border-radius: 6px;
+  background: rgba(20, 22, 52, 0.6);
+}
+.obs-rag-label {
+  color: #a9a8e8;
+  font-size: 9.5px;
+}
+.obs-rag-value {
+  color: #d9d8ff;
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 700;
+}
+.obs-tip {
+  color: #5f7fa4;
+  font-size: 9px;
+  line-height: 1.5;
+}
+.obs-tip code {
+  color: #7fb8d8;
+  font-family: var(--mono);
+  font-size: 8.5px;
+}
+/* 5 个页签时进一步压缩字号 */
+.dock-tabs .dock-tab {
+  padding-left: 5px;
+  padding-right: 5px;
+  font-size: 10px;
+}

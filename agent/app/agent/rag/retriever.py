@@ -12,6 +12,7 @@ from functools import lru_cache
 from typing import Any, Dict, List, Optional, Tuple
 
 from app.agent.rag.corpus import chunk_count, get_chunks
+from app.agent.rag.hybrid import search_hybrid
 from app.agent.rag.index import BM25LiteIndex
 
 #: 检索默认参数（top_k=5 与 W12 契约一致）
@@ -66,11 +67,24 @@ def get_index() -> BM25LiteIndex:
     return BM25LiteIndex(get_chunks())
 
 
-def search(query: str, top_k: int = DEFAULT_TOP_K) -> List[Dict[str, Any]]:
-    """检索内置知识库；无命中返回 []（绝不返回编造内容）。"""
+def search(
+    query: str,
+    top_k: int = DEFAULT_TOP_K,
+    mode: str = "hybrid_rerank",
+) -> List[Dict[str, Any]]:
+    """检索内置知识库（默认 hybrid+rerank；无命中返回 []，不构造答案）。
+
+    mode: ``hybrid_rerank``（默认）/``hybrid``/``bm25``/``vector``。
+    返回字段在原有 id/score/title/source/text 基础上增加 bm25_score/vector_score/
+    hybrid_score/rerank_score，供 trace.retrieval 记录。
+    """
     if not (query or "").strip():
         return []
-    return get_index().search(query, top_k=max(1, int(top_k)), min_score=MIN_SCORE)
+    if mode == "bm25":
+        return get_index().search(query, top_k=max(1, int(top_k)), min_score=MIN_SCORE)
+    return search_hybrid(
+        query, top_k=max(1, int(top_k)), mode=mode, filter_min_bm25=True
+    )
 
 
 def format_context(hits: List[Dict[str, Any]]) -> str:
@@ -106,17 +120,25 @@ def format_citations(hits: List[Dict[str, Any]], snippet_chars: int = 180) -> st
 
 def citations_record(hits: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """trace.retrieval 中的命中摘要（不含长正文，避免 trace 过大）。"""
-    return [
-        {
-            "rank": rank,
-            "id": hit.get("id"),
-            "score": hit.get("score"),
-            "title": hit.get("title"),
-            "source": hit.get("source"),
-            "citation": "[K%d]" % rank,
-        }
-        for rank, hit in enumerate(hits, start=1)
-    ]
+    records: List[Dict[str, Any]] = []
+    for rank, hit in enumerate(hits, start=1):
+        records.append(
+            {
+                "rank": rank,
+                "id": hit.get("id"),
+                "score": hit.get("score"),
+                "title": hit.get("title"),
+                "source": hit.get("source"),
+                "citation": "[K%d]" % rank,
+                "scores": {
+                    "bm25": hit.get("bm25_score"),
+                    "vector": hit.get("vector_score"),
+                    "hybrid": hit.get("hybrid_score"),
+                    "rerank": hit.get("rerank_score"),
+                },
+            }
+        )
+    return records
 
 
 def retrieval_record(
@@ -185,10 +207,13 @@ def corpus_size() -> int:
 
 
 def retrieval_health() -> Dict[str, Any]:
-    """健康检查摘要。"""
+    """健康检查摘要（W15：hybrid+rerank / 哈希向量 / 100+ 语料）。"""
     return {
         "enabled": True,
-        "retriever": "bm25-lite-bigram",
+        "retriever": "bm25-lite-bigram",  # 兼容旧字段；实际为 hybrid
+        "mode": "hybrid_rerank",
+        "vector": "feature-hashing",
+        "embedding_neural": False,
         "corpus_chunks": corpus_size(),
         "default_top_k": DEFAULT_TOP_K,
         "citations": "[K1]..[Kn]",

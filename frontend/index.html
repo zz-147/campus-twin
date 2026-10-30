@@ -126,7 +126,7 @@
           <div class="panel-foot" id="alerts-foot">数据来自后端 /api/issues</div>
         </aside>
 
-        <!-- 右侧信息坞：设备详情 / AI 运维助手 / 路径追踪 / 图例 四个页签 -->
+        <!-- 右侧信息坞：设备详情 / AI 运维助手 / 路径追踪 / 可观测性 / 图例 五个页签 -->
         <aside class="panel right-dock" id="right-dock">
           <div class="dock-tabs" role="tablist" aria-label="右侧信息面板">
             <button type="button" class="dock-tab active" data-tab="detail" id="tab-detail" role="tab" aria-selected="true">设备详情</button>
@@ -134,6 +134,7 @@
               <span class="ai-tab-dot" id="ai-tab-dot" aria-hidden="true"></span>AI 运维助手
             </button>
             <button type="button" class="dock-tab" data-tab="path" id="tab-path" role="tab" aria-selected="false">路径追踪</button>
+            <button type="button" class="dock-tab" data-tab="obs" id="tab-obs" role="tab" aria-selected="false">可观测性</button>
             <button type="button" class="dock-tab" data-tab="legend" id="tab-legend" role="tab" aria-selected="false">图例</button>
           </div>
 
@@ -205,6 +206,48 @@
             <div class="path-tip">
               3D 场景中发光路径 = 数据流向，数字标签 = hop 编号；<br />
               partial/failed 时红色 ✕ 为断点；点击「清除路径」恢复普通视角。
+            </div>
+          </section>
+
+          <section class="dock-pane obs-pane" id="pane-obs" data-pane="obs" role="tabpanel" aria-labelledby="tab-obs">
+            <div class="obs-head">
+              <div class="obs-title">可观测性 <span class="obs-sub">traces · metrics · RAG</span></div>
+              <button type="button" class="btn small ghost" id="obs-refresh">刷新</button>
+            </div>
+            <div class="obs-status" id="obs-status">打开页签后加载 Agent 可观测性数据</div>
+            <div class="obs-metrics">
+              <div class="obs-metric" id="obs-metric-latency">
+                <span class="obs-metric-label">平均响应延迟</span>
+                <span class="obs-metric-value">—</span>
+                <span class="obs-metric-sub">Agent 平均耗时</span>
+              </div>
+              <div class="obs-metric" id="obs-metric-error-rate">
+                <span class="obs-metric-label">工具错误率</span>
+                <span class="obs-metric-value">—</span>
+                <span class="obs-metric-sub">工具调用失败占比</span>
+              </div>
+              <div class="obs-metric" id="obs-metric-tokens">
+                <span class="obs-metric-label">Token 总量</span>
+                <span class="obs-metric-value">—</span>
+                <span class="obs-metric-sub">输入 + 输出</span>
+              </div>
+            </div>
+            <div class="obs-section-head">
+              <span>最近 Trace</span>
+              <label class="obs-filter" title="按当前 AI 会话过滤 trace">
+                <input type="checkbox" id="obs-filter-current" /> 仅当前会话
+              </label>
+            </div>
+            <ul class="obs-traces" id="obs-trace-list">
+              <li class="obs-empty">尚未加载</li>
+            </ul>
+            <div class="obs-rag hidden" id="obs-rag">
+              <div class="obs-section-head"><span>RAG 评测指标</span></div>
+              <div class="obs-rag-grid" id="obs-rag-grid"></div>
+            </div>
+            <div class="obs-tip">
+              数据来自 Agent <code>/api/traces</code>、<code>/api/metrics/agent</code>、
+              <code>/api/rag/report</code>；接口未就绪时仅本页签降级，不影响其它功能。
             </div>
           </section>
 
