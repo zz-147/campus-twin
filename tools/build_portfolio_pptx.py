@@ -283,13 +283,13 @@ footer(s, 14)
 # ---------------- Slide W15-A: RAG 评测闭环 ----------------
 s = new_slide()
 title_block(s, "14 · RAG 评测闭环（W15）", "56 篇文档 / 107 chunk / 3 种切分 / 48 query / 4 种检索配置")
-picture_fit(s, SHOTS / "16-RAG评测闭环.png", 0.6, 1.15, 12.1, 5.6)
+picture_fit(s, SHOTS / "18-RAG评测闭环.png", 0.6, 1.15, 12.1, 5.6)
 footer(s, 15)
 
 # ---------------- Slide W15-B: 可靠性 / 可观测性 / 部署 ----------------
 s = new_slide()
 title_block(s, "15 · 可靠性 / 可观测性 / 可部署性（W15）", "故障注入 · 断点恢复 · trace API · Docker + GitHub Actions CI")
-picture_fit(s, SHOTS / "17-可靠性与可观测性.png", 0.6, 1.15, 12.1, 5.6)
+picture_fit(s, SHOTS / "19-可靠性与可观测性.png", 0.6, 1.15, 12.1, 5.6)
 footer(s, 16)
 
 # ---------------- Slide 15: 结尾 ----------------
