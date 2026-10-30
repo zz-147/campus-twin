@@ -1,0 +1,4 @@
+# Campus Twin MCP Server 依赖（使用 .venv-mcp314，Python 3.14）
+# 注意：mcp 1.30 提供 FastMCP；不要升级到 2.x（FastMCP 已改名 MCPServer，API 不兼容）
+mcp>=1.30,<2
+httpx>=0.27,<1

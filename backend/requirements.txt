@@ -1,0 +1,15 @@
+# Campus Twin 后端依赖（Python 3.9）
+#
+# 安装（官方 PyPI/清华源不可用，必须走国内镜像）：
+#   D:\zdsh\campus-twin\.venv\Scripts\python.exe -m pip install --only-binary :all: \
+#     -i https://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com -r requirements.txt
+fastapi>=0.128,<1
+uvicorn>=0.39,<1
+httpx>=0.28,<1
+pydantic>=2.13,<3
+websockets>=15.0,<16
+# 测试
+pytest>=8.4,<9
+# W10 SNMP 驱动（pysnmp 4.4.12 是稳定同步 hlapi；它依赖 pyasn1<0.5）
+pysnmp==4.4.12
+pyasn1==0.4.8

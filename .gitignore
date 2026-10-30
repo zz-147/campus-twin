@@ -1,0 +1,55 @@
+# ===== 安全：密钥与本地配置（绝不提交）=====
+agent/.env
+.env
+*.env
+!**/.env.example
+
+# ===== 个人简历：不公开（仅本地保留）=====
+docs/简历-*
+docs/简历精修版.md
+docs/项目总结与简历描述.md
+简历*
+docs/简历*
+
+# ===== Python =====
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+.venv-mcp314/
+
+# ===== Node / 前端 =====
+node_modules/
+dist/
+frontend/scripts/.smoke-profile/
+frontend/scripts/.task*
+.smoke-profile/
+
+# ===== 运行数据（数据库 / 会话 / 指标，含隐私，不入库）=====
+backend/data/
+agent/data/
+mcp_bridge/data/
+data/
+*.db
+*.db-wal
+*.db-shm
+*.sqlite3
+
+# ===== 日志与临时产物 =====
+logs/
+*.log
+.dsh-office-*/
+.edge-profile*/
+*.tmp
+tmp*/
+
+# ===== 体积较大的自动生成截图（作品集精选图在 docs/作品集截图/ 保留）=====
+frontend/docs/
+docs/作品集截图.zip
+
+# ===== 个人本地配置 =====
+.env.local
+*.local
+.idea/
+.vscode/settings.json

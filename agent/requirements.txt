@@ -1,0 +1,14 @@
+# campus-twin AI 运维 Agent 依赖（Python 3.9，venv: D:\zdsh\campus-twin\.venv）
+# W11 LangGraph 生态版本以 lead 安装为准（见下方精确版本）
+fastapi>=0.100,<1.0
+uvicorn>=0.23,<1.0
+httpx>=0.24,<1.0
+pydantic>=2.0,<3.0
+openai>=1.0,<3.0
+python-dotenv>=1.0,<2.0
+pytest>=7.0,<9.0
+# ---- W11：LangGraph 编排引擎（StateGraph / checkpointer / interrupt） ----
+langgraph==0.6.11
+langchain-core==0.3.86
+langchain-openai==0.3.35
+langgraph-checkpoint-sqlite==2.0.11

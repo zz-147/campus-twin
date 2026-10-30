@@ -1,0 +1,47 @@
+! ============================================================
+! Router-4331  边界路由器（ISR4331，IOS-XE）
+! 互联: Gi0/0/0 10.0.0.2/30 (对 Core-3650 Gi1/0/6)
+! 上联: Gi0/0/1 203.0.113.2/30 (互联网预留)
+! 管理: Loopback0 192.168.10.254/32
+! 作用: OSPF 邻居 + 默认路由下发
+! 用法: CLI -> enable -> configure terminal -> 粘贴本文件
+! ============================================================
+enable
+configure terminal
+!
+hostname Router-4331
+enable secret cisco
+username admin privilege 15 secret cisco
+no ip domain-lookup
+ip domain-name campus.local
+!
+interface GigabitEthernet0/0/0
+ description DOWNLINK-TO-CORE
+ ip address 10.0.0.2 255.255.255.252
+ no shutdown
+!
+interface GigabitEthernet0/0/1
+ description UPLINK-TO-INTERNET
+ ip address 203.0.113.2 255.255.255.252
+ no shutdown
+!
+interface Loopback0
+ description MGMT
+ ip address 192.168.10.254 255.255.255.255
+!
+router ospf 1
+ network 10.0.0.0 0.0.0.3 area 0
+ network 192.168.10.254 0.0.0.0 area 0
+ network 203.0.113.0 0.0.0.255 area 0
+ default-information originate
+!
+ip route 0.0.0.0 0.0.0.0 203.0.113.1
+!
+line con 0
+ logging synchronous
+line vty 0 4
+ login local
+ transport input telnet
+!
+end
+write memory

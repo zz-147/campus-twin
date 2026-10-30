@@ -1,0 +1,41 @@
+! ============================================================
+! SW-SX-2960  实训楼接入交换机
+! 管理: 192.168.10.12   Trunk: Fa0/24 (VLAN 10,30)
+! 终端: Fa0/1 -> PC-SX1  (VLAN 30)
+! ============================================================
+enable
+configure terminal
+!
+hostname SW-SX-2960
+enable secret cisco
+username admin privilege 15 secret cisco
+no ip domain-lookup
+!
+vlan 10
+ name MGMT
+vlan 30
+ name TRAINING
+!
+interface FastEthernet0/24
+ description TRUNK-TO-CORE
+ switchport mode trunk
+ switchport trunk allowed vlan 10,30
+!
+interface range FastEthernet0/1-2
+ description PC-SHIXUN
+ switchport mode access
+ switchport access vlan 30
+ spanning-tree portfast
+!
+interface Vlan10
+ ip address 192.168.10.12 255.255.255.0
+ no shutdown
+!
+ip default-gateway 192.168.10.1
+!
+line vty 0 4
+ login local
+ transport input telnet
+!
+end
+write memory

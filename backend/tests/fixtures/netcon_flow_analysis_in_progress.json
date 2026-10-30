@@ -1,0 +1,11 @@
+{
+  "response": {
+    "request": {
+      "destIP": "192.168.50.10",
+      "id": "IN-PROGRESS-FLOW-ID",
+      "sourceIP": "192.168.20.10",
+      "status": "IN_PROGRESS"
+    }
+  },
+  "version": "1.0"
+}

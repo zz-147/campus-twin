@@ -1,0 +1,22 @@
+{
+  "name": "campus-twin-frontend",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "校园网络数字孪生 3D 可视化大屏（Vite + Three.js）",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "verify:devices": "node scripts/verify-devices.mjs",
+    "smoke": "node scripts/smoke-test.mjs",
+    "smoke:w9": "node scripts/smoke-w9.mjs",
+    "mock:w9": "node scripts/mock-w9-server.mjs"
+  },
+  "dependencies": {
+    "three": "^0.186.1"
+  },
+  "devDependencies": {
+    "vite": "^8.3.5"
+  }
+}

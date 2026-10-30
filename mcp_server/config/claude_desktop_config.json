@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "campus-twin": {
+      "command": "D:\\zdsh\\campus-twin\\.venv-mcp314\\Scripts\\python.exe",
+      "args": [
+        "D:\\zdsh\\campus-twin\\mcp_server\\server.py"
+      ],
+      "env": {
+        "BACKEND_BASE": "http://127.0.0.1:8000"
+      }
+    }
+  }
+}

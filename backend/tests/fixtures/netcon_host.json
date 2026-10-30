@@ -1,0 +1,22 @@
+{
+  "response": [
+    {
+      "id": "host-1",
+      "hostName": "PC-B1-01",
+      "hostIp": "10.10.20.11",
+      "hostMacAddress": "00:0c:29:aa:00:01",
+      "connectedNetworkDeviceId": "device-2222",
+      "connectedInterfaceName": "FastEthernet0/1",
+      "hostType": "Wired",
+      "lastUpdated": "2026-10-29 10:00:00"
+    },
+    {
+      "hostName": "PC-B1-02",
+      "hostIp": "10.10.20.12",
+      "hostMacAddress": "00:0c:29:aa:00:02",
+      "connectedNetworkDeviceId": "device-2222",
+      "connectedInterfaceName": "FastEthernet0/2"
+    }
+  ],
+  "version": "1.0"
+}

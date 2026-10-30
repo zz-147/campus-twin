@@ -1,0 +1,72 @@
+{
+  "response": [
+    {
+      "connectedInterfaceName": "FastEthernet0/2",
+      "connectedNetworkDeviceName": "SW-SS-2960",
+      "hostIp": "192.168.40.11",
+      "hostMac": "0001.4261.BB6A",
+      "hostName": "PC-SS2",
+      "hostType": "Pc",
+      "id": "PTT08105KQGuuid",
+      "lastUpdated": "2026-10-30 15:00:00",
+      "pingStatus": "SUCCESS"
+    },
+    {
+      "connectedInterfaceName": "FastEthernet0/1",
+      "connectedNetworkDeviceName": "SW-SS-2960",
+      "hostIp": "192.168.40.10",
+      "hostMac": "0060.3EE1.8745",
+      "hostName": "PC-SS1",
+      "hostType": "Pc",
+      "id": "PTT0810JBW7uuid",
+      "lastUpdated": "2026-10-30 15:00:00",
+      "pingStatus": "SUCCESS"
+    },
+    {
+      "connectedInterfaceName": "FastEthernet0/1",
+      "connectedNetworkDeviceName": "SW-SX-2960",
+      "hostIp": "192.168.30.10",
+      "hostMac": "0060.2FA3.478A",
+      "hostName": "PC-SX1",
+      "hostType": "Pc",
+      "id": "PTT0810PXO9uuid",
+      "lastUpdated": "2026-10-30 15:00:00",
+      "pingStatus": "SUCCESS"
+    },
+    {
+      "connectedInterfaceName": "FastEthernet0/2",
+      "connectedNetworkDeviceName": "SW-JX-2960",
+      "hostIp": "192.168.20.11",
+      "hostMac": "0002.1726.E0D7",
+      "hostName": "PC-JX2",
+      "hostType": "Pc",
+      "id": "PTT081093OVuuid",
+      "lastUpdated": "2026-10-30 15:00:00",
+      "pingStatus": "SUCCESS"
+    },
+    {
+      "connectedInterfaceName": "FastEthernet0/1",
+      "connectedNetworkDeviceName": "SW-JX-2960",
+      "hostIp": "192.168.20.10",
+      "hostMac": "0005.5EB1.6A45",
+      "hostName": "PC-JX1",
+      "hostType": "Pc",
+      "id": "PTT0810C5ONuuid",
+      "lastUpdated": "2026-10-30 15:00:00",
+      "pingStatus": "FAILURE"
+    },
+    {
+      "connectedInterfaceName": "GigabitEthernet1/0/5",
+      "connectedNetworkDeviceName": "Core-3650",
+      "hostIp": "192.168.50.10",
+      "hostMac": "00E0.F93C.3617",
+      "hostName": "Server-1",
+      "hostType": "Server",
+      "id": "PTT08100K33uuid",
+      "lastUpdated": "2026-10-30 15:00:00",
+      "pingStatus": "SUCCESS",
+      "vlanId": "50"
+    }
+  ],
+  "version": "1.0"
+}

@@ -1,0 +1,30 @@
+{
+  "response": [
+    {
+      "connectedAPMacAddress": "",
+      "connectedAPName": "",
+      "connectedInterfaceName": "FastEthernet0/2",
+      "connectedNetworkDeviceIpAddress": "",
+      "connectedNetworkDeviceName": "Switch",
+      "hostIp": "1.1.1.2",
+      "hostMac": "00E0.A313.7D46",
+      "hostName": "PC0",
+      "hostType": "Pc",
+      "id": "PTT08104J2F-uuid",
+      "lastUpdated": "2020-02-15 03:14:45",
+      "pingStatus": "SUCCESS",
+      "vlanId": "1"
+    },
+    {
+      "connectedInterfaceName": "",
+      "connectedNetworkDeviceName": "",
+      "hostIp": "192.168.0.102",
+      "hostMac": "",
+      "hostType": "",
+      "id": "PTT0810DEMD-uuid",
+      "lastUpdated": "2020-02-15 03:14:45",
+      "pingStatus": "FAILURE"
+    }
+  ],
+  "version": "1.0"
+}

@@ -1,0 +1,47 @@
+{
+  "response": [
+    {
+      "id": "device-1111",
+      "hostname": "CORE-R1",
+      "managementIpAddress": "10.10.0.1",
+      "macAddress": "00:11:22:33:44:55",
+      "serialNumber": "FCW1234A0B1",
+      "platformId": "ISR4331",
+      "productId": "ISR4331/K9",
+      "type": "Cisco ISR 4331",
+      "upTime": "1 day, 02:03:04",
+      "reachabilityStatus": "Reachable",
+      "collectionStatus": "Managed",
+      "interfaceCount": 4,
+      "lastUpdated": "2026-10-29 10:00:00",
+      "role": "CORE",
+      "family": "Routers",
+      "softwareVersion": "17.9.1"
+    },
+    {
+      "id": "device-2222",
+      "hostname": "ACC-SW1",
+      "managementIpAddress": "10.10.2.21",
+      "macAddress": "00:11:22:33:44:66",
+      "serialNumber": "FOC9876Z1",
+      "platformId": "WS-C2960-24TC-L",
+      "productId": "WS-C2960-24TC-L",
+      "type": "Cisco Catalyst 2960",
+      "upTime": "12 days, 04:21:09",
+      "reachabilityStatus": "Unreachable",
+      "collectionStatus": "Unreachable",
+      "interfaceCount": 24,
+      "lastUpdated": "2026-10-29 10:00:05",
+      "role": "ACCESS",
+      "family": "Switches and Hubs",
+      "softwareVersion": "15.2(7)E"
+    },
+    {
+      "hostname": "NO-ID-SW1",
+      "managementIpAddress": "10.10.3.9",
+      "reachabilityStatus": "Reachable",
+      "role": "ACCESS"
+    }
+  ],
+  "version": "1.0"
+}

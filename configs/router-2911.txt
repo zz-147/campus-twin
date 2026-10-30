@@ -1,0 +1,43 @@
+! ============================================================
+! Router-2911  边界路由器
+! 互联: Gi0/0 10.0.0.2/30 (对 Core Gi0/1)
+! 管理: Loopback0 192.168.10.254/32
+! 作用: OSPF 邻居 + 默认路由下发（互联网出口预留 Gi0/1）
+! ============================================================
+enable
+configure terminal
+!
+hostname Router-2911
+enable secret cisco
+username admin privilege 15 secret cisco
+no ip domain-lookup
+!
+interface GigabitEthernet0/0
+ description DOWNLINK-TO-CORE
+ ip address 10.0.0.2 255.255.255.252
+ no shutdown
+!
+interface GigabitEthernet0/1
+ description UPLINK-TO-INTERNET
+ ip address 203.0.113.2 255.255.255.252
+ no shutdown
+!
+interface Loopback0
+ description MGMT
+ ip address 192.168.10.254 255.255.255.255
+!
+router ospf 1
+ network 10.0.0.0 0.0.0.3 area 0
+ network 192.168.10.254 0.0.0.0 area 0
+ default-information originate
+!
+ip route 0.0.0.0 0.0.0.0 203.0.113.1
+!
+line con 0
+ logging synchronous
+line vty 0 4
+ login local
+ transport input telnet
+!
+end
+write memory

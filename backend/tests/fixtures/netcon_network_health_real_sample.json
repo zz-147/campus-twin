@@ -1,0 +1,9 @@
+{
+  "healthyClient": "20",
+  "healthyNetworkDevice": "100",
+  "numApplicationPolicies": "0",
+  "numLicensedRouters": "1",
+  "numLicensedSwitches": "0",
+  "numNetworkDevices": "7",
+  "numUnreachable": "3"
+}

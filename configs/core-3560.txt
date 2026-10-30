@@ -1,0 +1,103 @@
+! ============================================================
+! Core-3560  核心三层交换机
+! 管理: 192.168.10.1   互联: Gi0/1 10.0.0.1/30
+! 作用: VLAN 网关 + OSPF + 默认路由
+! 用法: CLI -> enable -> configure terminal -> 粘贴本文件
+! ============================================================
+enable
+configure terminal
+!
+hostname Core-3560
+enable secret cisco
+username admin privilege 15 secret cisco
+no ip domain-lookup
+ip domain-name campus.local
+!
+vlan 10
+ name MGMT
+vlan 20
+ name TEACHING
+vlan 30
+ name TRAINING
+vlan 40
+ name DORM
+vlan 50
+ name SERVER
+!
+interface FastEthernet0/1
+ description TRUNK-TO-JIAOXUELOU
+ switchport trunk encapsulation dot1q
+ switchport mode trunk
+ switchport trunk allowed vlan 10,20
+!
+interface FastEthernet0/2
+ description TRUNK-TO-SHIXUNLOU
+ switchport trunk encapsulation dot1q
+ switchport mode trunk
+ switchport trunk allowed vlan 10,30
+!
+interface FastEthernet0/3
+ description TRUNK-TO-SUSHELOU
+ switchport trunk encapsulation dot1q
+ switchport mode trunk
+ switchport trunk allowed vlan 10,40
+!
+interface FastEthernet0/4
+ description TO-NETWORK-CONTROLLER
+ switchport mode access
+ switchport access vlan 10
+ spanning-tree portfast
+!
+interface FastEthernet0/5
+ description TO-SERVER-1
+ switchport mode access
+ switchport access vlan 50
+ spanning-tree portfast
+!
+interface GigabitEthernet0/1
+ description UPLINK-TO-ROUTER
+ no switchport
+ ip address 10.0.0.1 255.255.255.252
+ no shutdown
+!
+interface Vlan10
+ description MGMT
+ ip address 192.168.10.1 255.255.255.0
+ no shutdown
+!
+interface Vlan20
+ description TEACHING
+ ip address 192.168.20.1 255.255.255.0
+ no shutdown
+!
+interface Vlan30
+ description TRAINING
+ ip address 192.168.30.1 255.255.255.0
+ no shutdown
+!
+interface Vlan40
+ description DORM
+ ip address 192.168.40.1 255.255.255.0
+ no shutdown
+!
+interface Vlan50
+ description SERVER
+ ip address 192.168.50.1 255.255.255.0
+ no shutdown
+!
+ip routing
+!
+router ospf 1
+ network 192.168.0.0 0.0.255.255 area 0
+ network 10.0.0.0 0.0.0.3 area 0
+!
+ip route 0.0.0.0 0.0.0.0 10.0.0.2
+!
+line con 0
+ logging synchronous
+line vty 0 4
+ login local
+ transport input telnet
+!
+end
+write memory

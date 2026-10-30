@@ -1,0 +1,723 @@
+{
+  "meta": {
+    "description": "campus-twin AI 运维 Agent 离线评测基线快照：字段结构对齐后端 REST API（/api/devices、/api/topology、/api/hosts、/api/issues、/api/alerts、/api/network-health、/api/metrics/{id}），拓扑/设备/主机取自 docs/校园网络拓扑设计.md 的最终落地记录，故障场景在基线之上按场景 JSON 注入。",
+    "base_time": 1793345700.0,
+    "base_time_iso": "2026-10-30T15:35:00+08:00",
+    "clock_note": "真实 NC 的 issueTimestamp 使用仿真设备时钟（与宿主机偏差约 10 分钟），快照统一使用宿主机观察时间 observed_at，并保留 source_ts 供审计。",
+    "metric_note": "PT 不暴露接口计数器，指标由后端行为仿真引擎生成（source=simulator）。此处为确定性公式生成的离线快照，用于可重复评测。",
+    "generated_by": "app/agent/eval/fixtures/base_snapshot.json（静态基线，故障由 app/agent/eval/fixture_data.py 注入）"
+  },
+  "health": {
+    "status": "ok",
+    "version": "fixture-baseline",
+    "driver": "netcon",
+    "metrics_source": "simulator",
+    "dataset_source": "netcon",
+    "stale": false,
+    "polls": 240,
+    "collect_errors": 0,
+    "consecutive_failures": 0,
+    "poll_interval": 5,
+    "server_time": 1793345700.0
+  },
+  "devices": {
+    "source": "netcon",
+    "stale": false,
+    "captured_at": 1793345700.0,
+    "captured_at_iso": "2026-10-30T15:35:00+08:00",
+    "count": 5,
+    "devices": [
+      {
+        "id": "dev-core-3650",
+        "hostname": "Core-3650",
+        "management_ip": "192.168.10.1",
+        "mac_address": "00:1B:0C:11:22:01",
+        "serial_number": "FDO2015A0AB",
+        "platform_id": "3650-24PS",
+        "product_id": "WS-C3650-24PS",
+        "device_type": "Cisco Catalyst 3650",
+        "role": "CORE",
+        "family": "Switches and Hubs",
+        "software_version": "IOS-XE 16.3.2",
+        "up_time": "3 days, 2 hours, 12 minutes",
+        "reachability": "Reachable",
+        "collection_status": "Managed",
+        "interface_count": 28,
+        "last_updated": "2026-10-30 15:34:58",
+        "source": "netcon",
+        "last_seen": 1793345688.0
+      },
+      {
+        "id": "dev-sw-jx-2960",
+        "hostname": "SW-JX-2960",
+        "management_ip": "192.168.10.11",
+        "mac_address": "00:1B:0C:11:22:11",
+        "serial_number": "FOC1620X1JX",
+        "platform_id": "2960-24TT",
+        "product_id": "WS-C2960-24TT-L",
+        "device_type": "Cisco Catalyst 2960",
+        "role": "ACCESS",
+        "family": "Switches and Hubs",
+        "software_version": "IOS 15.0(2)SE4",
+        "up_time": "3 days, 2 hours, 8 minutes",
+        "reachability": "Reachable",
+        "collection_status": "Managed",
+        "interface_count": 24,
+        "last_updated": "2026-10-30 15:34:57",
+        "source": "netcon",
+        "last_seen": 1793345687.0
+      },
+      {
+        "id": "dev-sw-sx-2960",
+        "hostname": "SW-SX-2960",
+        "management_ip": "192.168.10.12",
+        "mac_address": "00:1B:0C:11:22:12",
+        "serial_number": "FOC1620X1SX",
+        "platform_id": "2960-24TT",
+        "product_id": "WS-C2960-24TT-L",
+        "device_type": "Cisco Catalyst 2960",
+        "role": "ACCESS",
+        "family": "Switches and Hubs",
+        "software_version": "IOS 15.0(2)SE4",
+        "up_time": "3 days, 2 hours, 5 minutes",
+        "reachability": "Reachable",
+        "collection_status": "Managed",
+        "interface_count": 24,
+        "last_updated": "2026-10-30 15:34:56",
+        "source": "netcon",
+        "last_seen": 1793345686.0
+      },
+      {
+        "id": "dev-sw-ss-2960",
+        "hostname": "SW-SS-2960",
+        "management_ip": "192.168.10.13",
+        "mac_address": "00:1B:0C:11:22:13",
+        "serial_number": "FOC1620X1SS",
+        "platform_id": "2960-24TT",
+        "product_id": "WS-C2960-24TT-L",
+        "device_type": "Cisco Catalyst 2960",
+        "role": "ACCESS",
+        "family": "Switches and Hubs",
+        "software_version": "IOS 15.0(2)SE4",
+        "up_time": "3 days, 2 hours, 3 minutes",
+        "reachability": "Reachable",
+        "collection_status": "Managed",
+        "interface_count": 24,
+        "last_updated": "2026-10-30 15:34:55",
+        "source": "netcon",
+        "last_seen": 1793345685.0
+      },
+      {
+        "id": "dev-router-4331",
+        "hostname": "Router-4331",
+        "management_ip": "10.0.0.2",
+        "mac_address": "00:1B:0C:11:22:21",
+        "serial_number": "FDO2015A0RT",
+        "platform_id": "ISR4331/K9",
+        "product_id": "ISR4331/K9",
+        "device_type": "Cisco ISR4331",
+        "role": "BORDER_ROUTER",
+        "family": "Routers",
+        "software_version": "IOS-XE 16.6.4",
+        "up_time": "3 days, 1 hour, 58 minutes",
+        "reachability": "Reachable",
+        "collection_status": "Managed",
+        "interface_count": 3,
+        "last_updated": "2026-10-30 15:34:54",
+        "source": "netcon",
+        "last_seen": 1793345684.0
+      }
+    ]
+  },
+  "topology": {
+    "source": "netcon",
+    "stale": false,
+    "captured_at": 1793345700.0,
+    "captured_at_iso": "2026-10-30T15:35:00+08:00",
+    "counts": {
+      "nodes": 5,
+      "links": 4
+    },
+    "nodes": [
+      {
+        "id": "dev-core-3650",
+        "x": 480.0,
+        "y": 120.0,
+        "label": "Core-3650",
+        "role": "CORE",
+        "source": "netcon"
+      },
+      {
+        "id": "dev-sw-jx-2960",
+        "x": 240.0,
+        "y": 320.0,
+        "label": "SW-JX-2960",
+        "role": "ACCESS",
+        "source": "netcon"
+      },
+      {
+        "id": "dev-sw-sx-2960",
+        "x": 480.0,
+        "y": 360.0,
+        "label": "SW-SX-2960",
+        "role": "ACCESS",
+        "source": "netcon"
+      },
+      {
+        "id": "dev-sw-ss-2960",
+        "x": 720.0,
+        "y": 320.0,
+        "label": "SW-SS-2960",
+        "role": "ACCESS",
+        "source": "netcon"
+      },
+      {
+        "id": "dev-router-4331",
+        "x": 480.0,
+        "y": 20.0,
+        "label": "Router-4331",
+        "role": "BORDER_ROUTER",
+        "source": "netcon"
+      }
+    ],
+    "links": [
+      {
+        "id": "link-core-router",
+        "source": "dev-core-3650",
+        "target": "dev-router-4331",
+        "start_port_name": "Gi1/0/6",
+        "end_port_name": "Gi0/0",
+        "start_port_speed": "1Gbps",
+        "end_port_speed": "1Gbps",
+        "link_status": "up",
+        "data_source": "netcon"
+      },
+      {
+        "id": "link-core-jx",
+        "source": "dev-core-3650",
+        "target": "dev-sw-jx-2960",
+        "start_port_name": "Gi1/0/1",
+        "end_port_name": "Fa0/24",
+        "start_port_speed": "1Gbps",
+        "end_port_speed": "100Mbps",
+        "link_status": "up",
+        "data_source": "netcon"
+      },
+      {
+        "id": "link-core-sx",
+        "source": "dev-core-3650",
+        "target": "dev-sw-sx-2960",
+        "start_port_name": "Gi1/0/2",
+        "end_port_name": "Fa0/24",
+        "start_port_speed": "1Gbps",
+        "end_port_speed": "100Mbps",
+        "link_status": "up",
+        "data_source": "netcon"
+      },
+      {
+        "id": "link-core-ss",
+        "source": "dev-core-3650",
+        "target": "dev-sw-ss-2960",
+        "start_port_name": "Gi1/0/3",
+        "end_port_name": "Fa0/24",
+        "start_port_speed": "1Gbps",
+        "end_port_speed": "100Mbps",
+        "link_status": "up",
+        "data_source": "netcon"
+      }
+    ]
+  },
+  "hosts": {
+    "source": "netcon",
+    "stale": false,
+    "count": 6,
+    "hosts": [
+      {
+        "id": "host-pc-jx1",
+        "hostname": "PC-JX1",
+        "ip": "192.168.20.10",
+        "mac": "00D0.BA5C.1A01",
+        "connected_device_id": "dev-sw-jx-2960",
+        "connected_device_name": "SW-JX-2960",
+        "connected_interface": "Fa0/1",
+        "host_type": "PC",
+        "ping_status": "SUCCESS",
+        "vlan_id": "20",
+        "last_updated": "2026-10-30 15:34:58",
+        "source": "netcon",
+        "last_seen": 1793345688.0
+      },
+      {
+        "id": "host-pc-jx2",
+        "hostname": "PC-JX2",
+        "ip": "192.168.20.11",
+        "mac": "00D0.BA5C.1A02",
+        "connected_device_id": "dev-sw-jx-2960",
+        "connected_device_name": "SW-JX-2960",
+        "connected_interface": "Fa0/2",
+        "host_type": "PC",
+        "ping_status": "SUCCESS",
+        "vlan_id": "20",
+        "last_updated": "2026-10-30 15:34:58",
+        "source": "netcon",
+        "last_seen": 1793345688.0
+      },
+      {
+        "id": "host-pc-sx1",
+        "hostname": "PC-SX1",
+        "ip": "192.168.30.10",
+        "mac": "00D0.BA5C.1A03",
+        "connected_device_id": "dev-sw-sx-2960",
+        "connected_device_name": "SW-SX-2960",
+        "connected_interface": "Fa0/1",
+        "host_type": "PC",
+        "ping_status": "SUCCESS",
+        "vlan_id": "30",
+        "last_updated": "2026-10-30 15:34:57",
+        "source": "netcon",
+        "last_seen": 1793345687.0
+      },
+      {
+        "id": "host-pc-ss1",
+        "hostname": "PC-SS1",
+        "ip": "192.168.40.10",
+        "mac": "00D0.BA5C.1A04",
+        "connected_device_id": "dev-sw-ss-2960",
+        "connected_device_name": "SW-SS-2960",
+        "connected_interface": "Fa0/1",
+        "host_type": "PC",
+        "ping_status": "SUCCESS",
+        "vlan_id": "40",
+        "last_updated": "2026-10-30 15:34:57",
+        "source": "netcon",
+        "last_seen": 1793345687.0
+      },
+      {
+        "id": "host-pc-ss2",
+        "hostname": "PC-SS2",
+        "ip": "192.168.40.11",
+        "mac": "00D0.BA5C.1A05",
+        "connected_device_id": "dev-sw-ss-2960",
+        "connected_device_name": "SW-SS-2960",
+        "connected_interface": "Fa0/2",
+        "host_type": "PC",
+        "ping_status": "SUCCESS",
+        "vlan_id": "40",
+        "last_updated": "2026-10-30 15:34:57",
+        "source": "netcon",
+        "last_seen": 1793345687.0
+      },
+      {
+        "id": "host-server-1",
+        "hostname": "Server-1",
+        "ip": "192.168.50.10",
+        "mac": "00D0.BA5C.1A06",
+        "connected_device_id": "dev-core-3650",
+        "connected_device_name": "Core-3650",
+        "connected_interface": "Gi1/0/5",
+        "host_type": "Server",
+        "ping_status": "SUCCESS",
+        "vlan_id": "50",
+        "last_updated": "2026-10-30 15:34:56",
+        "source": "netcon",
+        "last_seen": 1793345686.0
+      }
+    ]
+  },
+  "issues": {
+    "source": "netcon",
+    "stale": false,
+    "count": 0,
+    "issues": []
+  },
+  "alerts": {
+    "count": 0,
+    "alerts": []
+  },
+  "network_health": {
+    "source": "netcon",
+    "stale": false,
+    "network_health": {
+      "total_devices": 5,
+      "healthy_devices": 5,
+      "unhealthy_devices": 0,
+      "unreachable_devices": 0,
+      "health_percentage": 100.0,
+      "healthy_devices_percentage": 100.0,
+      "healthy_clients_percentage": 100.0,
+      "num_licensed_routers": 1,
+      "num_licensed_switches": 4,
+      "num_application_policies": 0,
+      "timestamp": "2026-10-30 15:34:58",
+      "source": "netcon"
+    }
+  },
+  "scene": {
+    "version": 1,
+    "updated_at": 1793345700.0,
+    "theme": {
+      "name": "low-poly-campus",
+      "style": "low-poly",
+      "background": "#070b14",
+      "accent": "#38bdf8"
+    },
+    "device_assignment": {
+      "hostname_rules": [
+        {
+          "building_id": "teach",
+          "keywords": [
+            "JX",
+            "教学"
+          ]
+        },
+        {
+          "building_id": "train",
+          "keywords": [
+            "SX",
+            "实训"
+          ]
+        },
+        {
+          "building_id": "dorm",
+          "keywords": [
+            "SS",
+            "宿舍"
+          ]
+        },
+        {
+          "building_id": "core",
+          "keywords": [
+            "CORE",
+            "核心",
+            "机房"
+          ]
+        },
+        {
+          "building_id": "core",
+          "keywords": [
+            "ROUTER",
+            "路由",
+            "NC"
+          ]
+        }
+      ],
+      "ip_building_map": {
+        "192.168.10.": "core",
+        "192.168.20.": "teach",
+        "192.168.30.": "train",
+        "192.168.40.": "dorm",
+        "192.168.50.": "core"
+      }
+    },
+    "buildings": [
+      {
+        "id": "core",
+        "name": "中心机房",
+        "position": {
+          "x": 0.0,
+          "z": 0.0
+        },
+        "size": {
+          "width": 48.0,
+          "depth": 36.0,
+          "height": 16.0
+        },
+        "style": {
+          "color": "#2f6f9e",
+          "borderColor": "#7dd3fc",
+          "opacity": 0.35
+        },
+        "status": "confirmed",
+        "source": "seed",
+        "devices": [
+          {
+            "name": "Core-3650",
+            "type": "switch",
+            "position": {
+              "x": -18.0,
+              "y": 19.8,
+              "z": 0.0
+            },
+            "status": "confirmed",
+            "source": "seed",
+            "model": "Catalyst 3650",
+            "mgmt_ip": "192.168.10.1"
+          },
+          {
+            "name": "Router-4331",
+            "type": "router",
+            "position": {
+              "x": -6.0,
+              "y": 19.8,
+              "z": 0.0
+            },
+            "status": "confirmed",
+            "source": "seed",
+            "model": "ISR 4331",
+            "mgmt_ip": "10.0.0.2"
+          },
+          {
+            "name": "Server-1",
+            "type": "server",
+            "position": {
+              "x": 6.0,
+              "y": 19.8,
+              "z": 0.0
+            },
+            "status": "confirmed",
+            "source": "seed",
+            "model": "Server-PT",
+            "mgmt_ip": "192.168.50.10"
+          },
+          {
+            "name": "NC",
+            "type": "controller",
+            "position": {
+              "x": 18.0,
+              "y": 19.8,
+              "z": 0.0
+            },
+            "status": "confirmed",
+            "source": "seed",
+            "model": "Network Controller",
+            "mgmt_ip": "192.168.10.100"
+          }
+        ],
+        "created_at": 1793345700.0,
+        "updated_at": 1793345700.0
+      },
+      {
+        "id": "teach",
+        "name": "教学楼",
+        "position": {
+          "x": -120.0,
+          "z": 40.0
+        },
+        "size": {
+          "width": 78.0,
+          "depth": 30.0,
+          "height": 24.0
+        },
+        "style": {
+          "color": "#2a8a7e",
+          "borderColor": "#7dd3fc",
+          "opacity": 0.35
+        },
+        "status": "confirmed",
+        "source": "seed",
+        "devices": [
+          {
+            "name": "SW-JX-2960",
+            "type": "switch",
+            "position": {
+              "x": -135.0,
+              "y": 27.8,
+              "z": 40.0
+            },
+            "status": "confirmed",
+            "source": "seed",
+            "model": "Catalyst 2960",
+            "mgmt_ip": "192.168.10.11"
+          },
+          {
+            "name": "PC-JX1",
+            "type": "pc",
+            "position": {
+              "x": -120.0,
+              "y": 27.8,
+              "z": 40.0
+            },
+            "status": "confirmed",
+            "source": "seed",
+            "model": "PC-PT",
+            "mgmt_ip": "192.168.20.10"
+          },
+          {
+            "name": "PC-JX2",
+            "type": "pc",
+            "position": {
+              "x": -105.0,
+              "y": 27.8,
+              "z": 40.0
+            },
+            "status": "confirmed",
+            "source": "seed",
+            "model": "PC-PT",
+            "mgmt_ip": "192.168.20.11"
+          }
+        ],
+        "created_at": 1793345700.0,
+        "updated_at": 1793345700.0
+      },
+      {
+        "id": "train",
+        "name": "实训楼",
+        "position": {
+          "x": 120.0,
+          "z": 40.0
+        },
+        "size": {
+          "width": 62.0,
+          "depth": 30.0,
+          "height": 20.0
+        },
+        "style": {
+          "color": "#7a63b6",
+          "borderColor": "#7dd3fc",
+          "opacity": 0.35
+        },
+        "status": "confirmed",
+        "source": "seed",
+        "devices": [
+          {
+            "name": "SW-SX-2960",
+            "type": "switch",
+            "position": {
+              "x": 112.5,
+              "y": 23.8,
+              "z": 40.0
+            },
+            "status": "confirmed",
+            "source": "seed",
+            "model": "Catalyst 2960",
+            "mgmt_ip": "192.168.10.12"
+          },
+          {
+            "name": "PC-SX1",
+            "type": "pc",
+            "position": {
+              "x": 127.5,
+              "y": 23.8,
+              "z": 40.0
+            },
+            "status": "confirmed",
+            "source": "seed",
+            "model": "PC-PT",
+            "mgmt_ip": "192.168.30.10"
+          }
+        ],
+        "created_at": 1793345700.0,
+        "updated_at": 1793345700.0
+      },
+      {
+        "id": "dorm",
+        "name": "宿舍楼",
+        "position": {
+          "x": 0.0,
+          "z": -140.0
+        },
+        "size": {
+          "width": 66.0,
+          "depth": 26.0,
+          "height": 21.0
+        },
+        "style": {
+          "color": "#9a783f",
+          "borderColor": "#7dd3fc",
+          "opacity": 0.35
+        },
+        "status": "confirmed",
+        "source": "seed",
+        "devices": [
+          {
+            "name": "SW-SS-2960",
+            "type": "switch",
+            "position": {
+              "x": -15.0,
+              "y": 24.8,
+              "z": -140.0
+            },
+            "status": "confirmed",
+            "source": "seed",
+            "model": "Catalyst 2960",
+            "mgmt_ip": "192.168.10.13"
+          },
+          {
+            "name": "PC-SS1",
+            "type": "pc",
+            "position": {
+              "x": 0.0,
+              "y": 24.8,
+              "z": -140.0
+            },
+            "status": "confirmed",
+            "source": "seed",
+            "model": "PC-PT",
+            "mgmt_ip": "192.168.40.10"
+          },
+          {
+            "name": "PC-SS2",
+            "type": "pc",
+            "position": {
+              "x": 15.0,
+              "y": 24.8,
+              "z": -140.0
+            },
+            "status": "confirmed",
+            "source": "seed",
+            "model": "PC-PT",
+            "mgmt_ip": "192.168.40.11"
+          }
+        ],
+        "created_at": 1793345700.0,
+        "updated_at": 1793345700.0
+      }
+    ],
+    "removed_devices": []
+  },
+  "audit": {
+    "count": 0,
+    "entries": []
+  },
+  "metrics_fixtures": {
+    "dev-core-3650": {
+      "phase": 0.0,
+      "cpu_base": 16.0,
+      "mem_base": 31.0,
+      "util_base": 12.0,
+      "capacity_mbps": 1000.0,
+      "uplink_interface": "Gi1/0/1"
+    },
+    "dev-sw-jx-2960": {
+      "phase": 1.3,
+      "cpu_base": 13.0,
+      "mem_base": 28.0,
+      "util_base": 15.0,
+      "capacity_mbps": 100.0,
+      "uplink_interface": "Fa0/24"
+    },
+    "dev-sw-sx-2960": {
+      "phase": 2.1,
+      "cpu_base": 11.0,
+      "mem_base": 26.0,
+      "util_base": 9.0,
+      "capacity_mbps": 100.0,
+      "uplink_interface": "Fa0/24"
+    },
+    "dev-sw-ss-2960": {
+      "phase": 3.4,
+      "cpu_base": 14.0,
+      "mem_base": 29.0,
+      "util_base": 18.0,
+      "capacity_mbps": 100.0,
+      "uplink_interface": "Fa0/24"
+    },
+    "dev-router-4331": {
+      "phase": 4.2,
+      "cpu_base": 18.0,
+      "mem_base": 35.0,
+      "util_base": 21.0,
+      "capacity_mbps": 1000.0,
+      "uplink_interface": "Gi0/0"
+    }
+  },
+  "notify": {
+    "enabled": false,
+    "type": null,
+    "min_severity": "critical",
+    "last_sent_at": null,
+    "last_error": null,
+    "sent_count": 0,
+    "url_configured": false
+  }
+}

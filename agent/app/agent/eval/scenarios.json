@@ -1,0 +1,1116 @@
+{
+  "meta": {
+    "name": "campus-twin AI 运维 Agent 38 场景评测集（W5-6 排障 20 + W9 多 Agent 10 + W10 只读 5 + W12 RAG 3）",
+    "version": "1.0",
+    "description": "s01-s20 排障（故障注入 + 诊断 Agent）；s21-s30 W9 多 Agent；s31-s35 W10 只读查询；s36-s38 W12 轻量 RAG（配置知识引用 / NC 告警约束 / 无命中不编造）。",
+    "fault_types": [
+      "host_down",
+      "device_unreachable",
+      "link_down",
+      "port_shutdown",
+      "routing_missing",
+      "vlan_misconfig",
+      "broadcast_storm",
+      "high_cpu",
+      "bandwidth_congestion"
+    ],
+    "scoring": {
+      "root_cause_hit": "回答文本（小写化）命中 expected_root_cause_keywords 中任意一个关键词",
+      "device_hit": "回答文本包含 expected_device（大小写不敏感），或包含 expected_device_ip",
+      "evidence_hit_rate": "expected_evidence_keywords 在回答中出现的比例",
+      "report": "run_eval.py 输出 eval/report.json（根因命中率 / 设备定位命中率 / 证据覆盖率 / 每场景明细）",
+      "action_hit": "expected_actions 全部出现在返回的 actions[].type 中；expected_actions 为空时要求 actions 为空",
+      "action_gate": "所有 action 必须 status=pending（chat 不自动执行）；danger 标记与 expected_danger 一致；forbidden_actions 不得出现",
+      "w10_note": "W10 场景全部只读，expected_actions=[]：必须不生成写 action；后端 W10 接口未就绪时工具返回 ok=false，Agent 给出诚实降级说明且评测不崩。",
+      "w12_note": "W12 场景要求回答包含真实知识库引用 [K1]..（s36/s37）或明确“知识库无相关内容”（s38），且 knowledge 类别不产生写 action（s36 onboarding 生成的 action 参与安全门但不计动作正确率）。"
+    },
+    "total": 38
+  },
+  "scenarios": [
+    {
+      "id": "s01",
+      "category": "host_down",
+      "question": "教学楼 PC-JX1 上不了网，帮我看下是什么原因？",
+      "expected_root_cause": "终端主机离线（PC-JX1 ping 失败）",
+      "expected_root_cause_keywords": [
+        "终端主机离线",
+        "主机离线",
+        "终端离线",
+        "终端掉线",
+        "host down",
+        "Device is down"
+      ],
+      "expected_device": "PC-JX1",
+      "expected_device_ip": "192.168.20.10",
+      "expected_evidence_keywords": [
+        "PC-JX1",
+        "192.168.20.10",
+        "FAILURE"
+      ],
+      "fault": {
+        "type": "host_down",
+        "hostname": "PC-JX1"
+      }
+    },
+    {
+      "id": "s02",
+      "category": "host_down",
+      "question": "PC-JX2 突然掉线了，是哪个设备或端口的问题？",
+      "expected_root_cause": "终端主机离线（PC-JX2 ping 失败）",
+      "expected_root_cause_keywords": [
+        "终端主机离线",
+        "主机离线",
+        "终端离线",
+        "终端掉线",
+        "host down",
+        "Device is down"
+      ],
+      "expected_device": "PC-JX2",
+      "expected_device_ip": "192.168.20.11",
+      "expected_evidence_keywords": [
+        "PC-JX2",
+        "192.168.20.11",
+        "FAILURE"
+      ],
+      "fault": {
+        "type": "host_down",
+        "hostname": "PC-JX2"
+      }
+    },
+    {
+      "id": "s03",
+      "category": "host_down",
+      "question": "实训楼的 PC-SX1 为什么连不上网关？",
+      "expected_root_cause": "终端主机离线（PC-SX1 ping 失败）",
+      "expected_root_cause_keywords": [
+        "终端主机离线",
+        "主机离线",
+        "终端离线",
+        "终端掉线",
+        "host down",
+        "Device is down"
+      ],
+      "expected_device": "PC-SX1",
+      "expected_device_ip": "192.168.30.10",
+      "expected_evidence_keywords": [
+        "PC-SX1",
+        "192.168.30.10",
+        "FAILURE"
+      ],
+      "fault": {
+        "type": "host_down",
+        "hostname": "PC-SX1"
+      }
+    },
+    {
+      "id": "s04",
+      "category": "host_down",
+      "question": "宿舍楼 PC-SS1 现在网络不通，帮我定位一下。",
+      "expected_root_cause": "终端主机离线（PC-SS1 ping 失败）",
+      "expected_root_cause_keywords": [
+        "终端主机离线",
+        "主机离线",
+        "终端离线",
+        "终端掉线",
+        "host down",
+        "Device is down"
+      ],
+      "expected_device": "PC-SS1",
+      "expected_device_ip": "192.168.40.10",
+      "expected_evidence_keywords": [
+        "PC-SS1",
+        "192.168.40.10",
+        "FAILURE"
+      ],
+      "fault": {
+        "type": "host_down",
+        "hostname": "PC-SS1"
+      }
+    },
+    {
+      "id": "s05",
+      "category": "host_down",
+      "question": "教务服务器 Server-1 访问不了，是不是服务器宕了？",
+      "expected_root_cause": "终端主机离线（Server-1 ping 失败）",
+      "expected_root_cause_keywords": [
+        "终端主机离线",
+        "主机离线",
+        "终端离线",
+        "终端掉线",
+        "host down",
+        "Device is down"
+      ],
+      "expected_device": "Server-1",
+      "expected_device_ip": "192.168.50.10",
+      "expected_evidence_keywords": [
+        "Server-1",
+        "192.168.50.10",
+        "FAILURE"
+      ],
+      "fault": {
+        "type": "host_down",
+        "hostname": "Server-1"
+      }
+    },
+    {
+      "id": "s06",
+      "category": "device_unreachable",
+      "question": "SW-JX-2960 的管理地址 ping 不通了，怎么回事？",
+      "expected_root_cause": "网络设备不可达（SW-JX-2960 离线）",
+      "expected_root_cause_keywords": [
+        "网络设备不可达",
+        "设备不可达",
+        "设备离线",
+        "设备失联",
+        "unreachable"
+      ],
+      "expected_device": "SW-JX-2960",
+      "expected_device_ip": "192.168.10.11",
+      "expected_evidence_keywords": [
+        "SW-JX-2960",
+        "192.168.10.11",
+        "Unreachable"
+      ],
+      "fault": {
+        "type": "device_unreachable",
+        "device": "SW-JX-2960"
+      }
+    },
+    {
+      "id": "s07",
+      "category": "device_unreachable",
+      "question": "实训楼接入交换机 SW-SX-2960 看起来离线了，帮我确认并给排障步骤。",
+      "expected_root_cause": "网络设备不可达（SW-SX-2960 离线）",
+      "expected_root_cause_keywords": [
+        "网络设备不可达",
+        "设备不可达",
+        "设备离线",
+        "设备失联",
+        "unreachable"
+      ],
+      "expected_device": "SW-SX-2960",
+      "expected_device_ip": "192.168.10.12",
+      "expected_evidence_keywords": [
+        "SW-SX-2960",
+        "192.168.10.12",
+        "Unreachable"
+      ],
+      "fault": {
+        "type": "device_unreachable",
+        "device": "SW-SX-2960"
+      }
+    },
+    {
+      "id": "s08",
+      "category": "device_unreachable",
+      "question": "宿舍楼那台 2960 交换机是不是挂了？",
+      "expected_root_cause": "网络设备不可达（SW-SS-2960 离线）",
+      "expected_root_cause_keywords": [
+        "网络设备不可达",
+        "设备不可达",
+        "设备离线",
+        "设备失联",
+        "unreachable"
+      ],
+      "expected_device": "SW-SS-2960",
+      "expected_device_ip": "192.168.10.13",
+      "expected_evidence_keywords": [
+        "SW-SS-2960",
+        "192.168.10.13",
+        "Unreachable"
+      ],
+      "fault": {
+        "type": "device_unreachable",
+        "device": "SW-SS-2960"
+      }
+    },
+    {
+      "id": "s09",
+      "category": "device_unreachable",
+      "question": "边界路由器 Router-4331 为什么不可达？会影响哪些网段？",
+      "expected_root_cause": "网络设备不可达（Router-4331 离线）",
+      "expected_root_cause_keywords": [
+        "网络设备不可达",
+        "设备不可达",
+        "设备离线",
+        "设备失联",
+        "unreachable"
+      ],
+      "expected_device": "Router-4331",
+      "expected_device_ip": "10.0.0.2",
+      "expected_evidence_keywords": [
+        "Router-4331",
+        "10.0.0.2",
+        "Unreachable"
+      ],
+      "fault": {
+        "type": "device_unreachable",
+        "device": "Router-4331"
+      }
+    },
+    {
+      "id": "s10",
+      "category": "high_cpu",
+      "question": "核心交换机 Core-3650 的 CPU 为什么这么高？是不是有异常流量？",
+      "expected_root_cause": "CPU 负载过高（Core-3650）",
+      "expected_root_cause_keywords": [
+        "CPU 过高",
+        "CPU 负载过高",
+        "CPU 使用率过高",
+        "CPU utilization",
+        "CPU 高"
+      ],
+      "expected_device": "Core-3650",
+      "expected_device_ip": "192.168.10.1",
+      "expected_evidence_keywords": [
+        "Core-3650",
+        "CPU",
+        "利用率"
+      ],
+      "fault": {
+        "type": "high_cpu",
+        "device": "Core-3650"
+      }
+    },
+    {
+      "id": "s11",
+      "category": "link_down",
+      "question": "教学楼整个网络都断了，怀疑核心到教学楼的上联链路有问题，帮我查一下。",
+      "expected_root_cause": "上联链路中断（Core-3650 Gi1/0/1 ↔ SW-JX-2960 Fa0/24）",
+      "expected_root_cause_keywords": [
+        "链路中断",
+        "链路故障",
+        "链路 down",
+        "link down",
+        "link_down"
+      ],
+      "expected_device": "SW-JX-2960",
+      "expected_device_ip": "192.168.10.11",
+      "expected_evidence_keywords": [
+        "Gi1/0/1",
+        "Fa0/24",
+        "down"
+      ],
+      "fault": {
+        "type": "link_down",
+        "link_id": "link-core-jx"
+      }
+    },
+    {
+      "id": "s12",
+      "category": "link_down",
+      "question": "实训楼连不上核心了，帮我查一下链路状态。",
+      "expected_root_cause": "上联链路中断（Core-3650 Gi1/0/2 ↔ SW-SX-2960 Fa0/24）",
+      "expected_root_cause_keywords": [
+        "链路中断",
+        "链路故障",
+        "链路 down",
+        "link down",
+        "link_down"
+      ],
+      "expected_device": "SW-SX-2960",
+      "expected_device_ip": "192.168.10.12",
+      "expected_evidence_keywords": [
+        "Gi1/0/2",
+        "Fa0/24",
+        "down"
+      ],
+      "fault": {
+        "type": "link_down",
+        "link_id": "link-core-sx"
+      }
+    },
+    {
+      "id": "s13",
+      "category": "link_down",
+      "question": "宿舍楼整体断网，怀疑上联链路，查一下。",
+      "expected_root_cause": "上联链路中断（Core-3650 Gi1/0/3 ↔ SW-SS-2960 Fa0/24）",
+      "expected_root_cause_keywords": [
+        "链路中断",
+        "链路故障",
+        "链路 down",
+        "link down",
+        "link_down"
+      ],
+      "expected_device": "SW-SS-2960",
+      "expected_device_ip": "192.168.10.13",
+      "expected_evidence_keywords": [
+        "Gi1/0/3",
+        "Fa0/24",
+        "down"
+      ],
+      "fault": {
+        "type": "link_down",
+        "link_id": "link-core-ss"
+      }
+    },
+    {
+      "id": "s14",
+      "category": "link_down",
+      "question": "核心交换机和边界路由器之间的链路是不是断了？",
+      "expected_root_cause": "上联链路中断（Core-3650 Gi1/0/6 ↔ Router-4331 Gi0/0）",
+      "expected_root_cause_keywords": [
+        "链路中断",
+        "链路故障",
+        "链路 down",
+        "link down",
+        "link_down"
+      ],
+      "expected_device": "Router-4331",
+      "expected_device_ip": "10.0.0.2",
+      "expected_evidence_keywords": [
+        "Gi1/0/6",
+        "Gi0/0",
+        "down"
+      ],
+      "fault": {
+        "type": "link_down",
+        "link_id": "link-core-router"
+      }
+    },
+    {
+      "id": "s15",
+      "category": "port_shutdown",
+      "question": "SW-JX-2960 的 Fa0/1 端口好像被 shutdown 了，导致 PC-JX1 掉线，帮我确认并恢复。",
+      "expected_root_cause": "接入端口 shutdown（SW-JX-2960 Fa0/1）",
+      "expected_root_cause_keywords": [
+        "端口 shutdown",
+        "端口关闭",
+        "端口被关",
+        "port shutdown",
+        "shutdown"
+      ],
+      "expected_device": "SW-JX-2960",
+      "expected_device_ip": "192.168.10.11",
+      "expected_evidence_keywords": [
+        "Fa0/1",
+        "shutdown",
+        "PC-JX1"
+      ],
+      "fault": {
+        "type": "port_shutdown",
+        "switch": "SW-JX-2960",
+        "port": "Fa0/1",
+        "hostname": "PC-JX1"
+      }
+    },
+    {
+      "id": "s16",
+      "category": "port_shutdown",
+      "question": "宿舍楼 PC-SS2 掉线，怀疑 SW-SS-2960 的 Fa0/2 端口 shutdown，帮忙确认。",
+      "expected_root_cause": "接入端口 shutdown（SW-SS-2960 Fa0/2）",
+      "expected_root_cause_keywords": [
+        "端口 shutdown",
+        "端口关闭",
+        "端口被关",
+        "port shutdown",
+        "shutdown"
+      ],
+      "expected_device": "SW-SS-2960",
+      "expected_device_ip": "192.168.10.13",
+      "expected_evidence_keywords": [
+        "Fa0/2",
+        "shutdown",
+        "PC-SS2"
+      ],
+      "fault": {
+        "type": "port_shutdown",
+        "switch": "SW-SS-2960",
+        "port": "Fa0/2",
+        "hostname": "PC-SS2"
+      }
+    },
+    {
+      "id": "s17",
+      "category": "routing_missing",
+      "question": "从教学楼访问不了服务器网段，怀疑默认路由没了，帮忙确认。",
+      "expected_root_cause": "缺省路由/回程路由缺失（Router-4331）",
+      "expected_root_cause_keywords": [
+        "路由缺失",
+        "缺省路由",
+        "默认路由",
+        "route missing",
+        "Missing default route"
+      ],
+      "expected_device": "Router-4331",
+      "expected_device_ip": "10.0.0.2",
+      "expected_evidence_keywords": [
+        "Router-4331",
+        "默认路由",
+        "10.0.0.2"
+      ],
+      "fault": {
+        "type": "routing_missing",
+        "device": "Router-4331"
+      }
+    },
+    {
+      "id": "s18",
+      "category": "vlan_misconfig",
+      "question": "教学楼 PC-JX1 一直拿不到网关地址，是不是 VLAN 配错了？",
+      "expected_root_cause": "VLAN 配置错误（SW-JX-2960 Fa0/1 应属 VLAN 20）",
+      "expected_root_cause_keywords": [
+        "VLAN 配置错误",
+        "VLAN 错误",
+        "VLAN 不一致",
+        "VLAN mismatch",
+        "VLAN 配错"
+      ],
+      "expected_device": "SW-JX-2960",
+      "expected_device_ip": "192.168.10.11",
+      "expected_evidence_keywords": [
+        "SW-JX-2960",
+        "VLAN",
+        "Fa0/1"
+      ],
+      "fault": {
+        "type": "vlan_misconfig",
+        "switch": "SW-JX-2960",
+        "port": "Fa0/1",
+        "hostname": "PC-JX1",
+        "expected_vlan": "20",
+        "actual_vlan": "30"
+      }
+    },
+    {
+      "id": "s19",
+      "category": "broadcast_storm",
+      "question": "教学楼网络特别卡，怀疑有环路广播风暴，帮我分析一下。",
+      "expected_root_cause": "广播风暴/二层环路（SW-JX-2960）",
+      "expected_root_cause_keywords": [
+        "广播风暴",
+        "环路",
+        "broadcast storm",
+        "loop"
+      ],
+      "expected_device": "SW-JX-2960",
+      "expected_device_ip": "192.168.10.11",
+      "expected_evidence_keywords": [
+        "SW-JX-2960",
+        "广播",
+        "CPU"
+      ],
+      "fault": {
+        "type": "broadcast_storm",
+        "switch": "SW-JX-2960",
+        "ports": [
+          "Fa0/2",
+          "Fa0/3"
+        ]
+      }
+    },
+    {
+      "id": "s20",
+      "category": "bandwidth_congestion",
+      "question": "中心机房 Router-4331 的带宽为什么这么高？是不是链路拥塞了？",
+      "expected_root_cause": "链路带宽拥塞（Router-4331 Gi0/0 利用率过高）",
+      "expected_root_cause_keywords": [
+        "带宽拥塞",
+        "链路拥塞",
+        "带宽利用率过高",
+        "利用率过高",
+        "congestion"
+      ],
+      "expected_device": "Router-4331",
+      "expected_device_ip": "10.0.0.2",
+      "expected_evidence_keywords": [
+        "Router-4331",
+        "利用率",
+        "带宽"
+      ],
+      "fault": {
+        "type": "bandwidth_congestion",
+        "device": "Router-4331",
+        "interface": "Gi0/0"
+      }
+    },
+    {
+      "id": "s21",
+      "category": "onboarding",
+      "question": "我想在宿舍楼加一台 2960 交换机，该怎么接入？",
+      "expected_root_cause": "在宿舍楼新增 2960 接入交换机（VLAN 40）",
+      "expected_root_cause_keywords": [
+        "接入方案",
+        "宿舍楼"
+      ],
+      "expected_device": "SW-SS-2961",
+      "expected_device_ip": "192.168.10.14",
+      "expected_evidence_keywords": [
+        "宿舍楼",
+        "SW-SS-2961",
+        "2960"
+      ],
+      "expected_actions": [
+        "apply_scene_device"
+      ],
+      "expected_danger": false,
+      "fault": null,
+      "w9": null
+    },
+    {
+      "id": "s22",
+      "category": "onboarding",
+      "question": "教学楼要新增一台 2960 交换机，帮我给出接线表和完整配置。",
+      "expected_root_cause": "在教学楼新增 2960 接入交换机（VLAN 20）",
+      "expected_root_cause_keywords": [
+        "接入方案",
+        "教学楼"
+      ],
+      "expected_device": "SW-JX-2961",
+      "expected_device_ip": "192.168.10.14",
+      "expected_evidence_keywords": [
+        "教学楼",
+        "SW-JX-2961",
+        "VLAN 20"
+      ],
+      "expected_actions": [
+        "apply_scene_device"
+      ],
+      "expected_danger": false,
+      "fault": null,
+      "w9": null
+    },
+    {
+      "id": "s23",
+      "category": "onboarding",
+      "question": "实训楼再加一台 2960 交换机，给个接入方案。",
+      "expected_root_cause": "在实训楼新增 2960 接入交换机（VLAN 30）",
+      "expected_root_cause_keywords": [
+        "接入方案",
+        "实训楼"
+      ],
+      "expected_device": "SW-SX-2961",
+      "expected_device_ip": "192.168.10.14",
+      "expected_evidence_keywords": [
+        "实训楼",
+        "SW-SX-2961",
+        "VLAN 30"
+      ],
+      "expected_actions": [
+        "apply_scene_device"
+      ],
+      "expected_danger": false,
+      "fault": null,
+      "w9": null
+    },
+    {
+      "id": "s24",
+      "category": "recon",
+      "question": "发现新设备了吗？帮我加到场景里。",
+      "expected_root_cause": "发现待确认新设备 SW-JX-2962（教学楼）",
+      "expected_root_cause_keywords": [
+        "新设备",
+        "发现"
+      ],
+      "expected_device": "SW-JX-2962",
+      "expected_device_ip": "192.168.10.16",
+      "expected_evidence_keywords": [
+        "SW-JX-2962",
+        "教学楼",
+        "pending"
+      ],
+      "expected_actions": [
+        "confirm_scene_device"
+      ],
+      "expected_danger": false,
+      "fault": null,
+      "w9": {
+        "new_devices": [
+          {
+            "hostname": "SW-JX-2962",
+            "management_ip": "192.168.10.16",
+            "platform_id": "2960",
+            "model": "Catalyst 2960",
+            "in_scene": true,
+            "scene_building": "教学楼",
+            "scene_type": "switch"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s25",
+      "category": "recon",
+      "question": "新发现一台设备 ACC-NEW-01（192.168.20.20），它属于哪个楼栋？",
+      "expected_root_cause": "新设备 ACC-NEW-01 归属教学楼（管理 IP 网段映射）",
+      "expected_root_cause_keywords": [
+        "ACC-NEW-01",
+        "教学楼"
+      ],
+      "expected_device": "ACC-NEW-01",
+      "expected_device_ip": "192.168.20.20",
+      "expected_evidence_keywords": [
+        "192.168.20.20",
+        "教学楼",
+        "管理 IP"
+      ],
+      "expected_actions": [],
+      "fault": null,
+      "w9": {
+        "new_devices": [
+          {
+            "hostname": "ACC-NEW-01",
+            "management_ip": "192.168.20.20",
+            "platform_id": "2960",
+            "model": "Catalyst 2960"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s26",
+      "category": "steward",
+      "question": "把已恢复的告警清空。",
+      "expected_root_cause": "清空 3 条已恢复告警（active 告警不可删）",
+      "expected_root_cause_keywords": [
+        "已恢复",
+        "清空"
+      ],
+      "expected_device": "SW-JX-2960",
+      "expected_evidence_keywords": [
+        "已恢复",
+        "3 条",
+        "软删除"
+      ],
+      "expected_actions": [
+        "clear_cleared_alerts"
+      ],
+      "expected_danger": true,
+      "forbidden_actions": [
+        "silence_alert",
+        "delete_alert"
+      ],
+      "fault": null,
+      "w9": {
+        "alerts": [
+          {
+            "id": 101,
+            "state": "cleared",
+            "severity": "critical",
+            "title": "已恢复：链路中断 Core-3650 Gi1/0/1 ↔ SW-JX-2960 Fa0/24",
+            "detail": "链路已恢复",
+            "device_id": "dev-core-3650"
+          },
+          {
+            "id": 102,
+            "state": "cleared",
+            "severity": "warning",
+            "title": "已恢复：主机离线 PC-JX1（192.168.20.10）",
+            "detail": "终端 ping 已恢复",
+            "device_id": "dev-sw-jx-2960"
+          },
+          {
+            "id": 103,
+            "state": "cleared",
+            "severity": "warning",
+            "title": "已恢复：设备采集异常 SW-JX-2960",
+            "detail": "collectionStatus 已恢复 Managed",
+            "device_id": "dev-sw-jx-2960"
+          },
+          {
+            "id": 104,
+            "state": "open",
+            "severity": "critical",
+            "title": "设备采集异常：SW-SX-2960",
+            "detail": "collectionStatus=Unreachable",
+            "device_id": "dev-sw-sx-2960"
+          },
+          {
+            "id": 105,
+            "state": "open",
+            "severity": "warning",
+            "title": "主机 ping 失败：PC-SS2",
+            "detail": "ping=FAILURE",
+            "device_id": "dev-sw-ss-2960"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s27",
+      "category": "steward",
+      "question": "清空所有历史会话，只保留当前对话。",
+      "expected_root_cause": "清空历史会话并保留当前会话",
+      "expected_root_cause_keywords": [
+        "清空",
+        "历史会话"
+      ],
+      "expected_device": "当前会话",
+      "expected_evidence_keywords": [
+        "历史会话",
+        "清空"
+      ],
+      "expected_actions": [
+        "clear_conversations"
+      ],
+      "expected_danger": true,
+      "fault": null,
+      "w9": {
+        "conversations_seed": [
+          {
+            "title": "历史会话 1",
+            "messages": [
+              {
+                "role": "user",
+                "content": "教学楼为什么卡？"
+              }
+            ]
+          },
+          {
+            "title": "历史会话 2",
+            "messages": [
+              {
+                "role": "user",
+                "content": "PC-JX1 掉线了"
+              }
+            ]
+          },
+          {
+            "title": "历史会话 3",
+            "messages": [
+              {
+                "role": "user",
+                "content": "把已恢复告警清空"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "s28",
+      "category": "steward",
+      "question": "把剩下的活跃告警全部删掉。",
+      "expected_root_cause": "活跃告警不可删除，只能静默",
+      "expected_root_cause_keywords": [
+        "不可删除",
+        "静默"
+      ],
+      "expected_device": "SW-SX-2960",
+      "expected_evidence_keywords": [
+        "活跃告警",
+        "静默"
+      ],
+      "expected_actions": [
+        "silence_alert"
+      ],
+      "expected_danger": false,
+      "forbidden_actions": [
+        "delete_alert",
+        "clear_cleared_alerts"
+      ],
+      "fault": null,
+      "w9": {
+        "alerts": [
+          {
+            "id": 104,
+            "state": "open",
+            "severity": "critical",
+            "title": "设备采集异常：SW-SX-2960",
+            "detail": "collectionStatus=Unreachable",
+            "device_id": "dev-sw-sx-2960"
+          },
+          {
+            "id": 105,
+            "state": "open",
+            "severity": "warning",
+            "title": "主机 ping 失败：PC-SS2",
+            "detail": "ping=FAILURE",
+            "device_id": "dev-sw-ss-2960"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s29",
+      "category": "new_building",
+      "question": "我要在校园里新建一栋图书馆，放一台 2960 交换机。",
+      "expected_root_cause": "新建图书馆楼栋并接入 2960 交换机（VLAN 60）",
+      "expected_root_cause_keywords": [
+        "新建",
+        "图书馆"
+      ],
+      "expected_device": "图书馆",
+      "expected_evidence_keywords": [
+        "图书馆",
+        "2960",
+        "VLAN 60"
+      ],
+      "expected_actions": [
+        "apply_scene_building"
+      ],
+      "expected_danger": false,
+      "fault": null,
+      "w9": null
+    },
+    {
+      "id": "s30",
+      "category": "new_building",
+      "question": "在校园东侧新建一栋体育馆，放一台 2960 交换机。",
+      "expected_root_cause": "新建体育馆楼栋并接入 2960 交换机（VLAN 70）",
+      "expected_root_cause_keywords": [
+        "新建",
+        "体育馆"
+      ],
+      "expected_device": "体育馆",
+      "expected_evidence_keywords": [
+        "体育馆",
+        "2960",
+        "VLAN 70"
+      ],
+      "expected_actions": [
+        "apply_scene_building"
+      ],
+      "expected_danger": false,
+      "fault": null,
+      "w9": null
+    },
+    {
+      "id": "s31",
+      "category": "path_trace",
+      "question": "PC-JX1 到服务器 Server-1 的路径怎么走？",
+      "expected_root_cause": "PC-JX1 → SW-JX-2960 → Core-3650 → Server-1 完整可达",
+      "expected_root_cause_keywords": [
+        "路径追踪",
+        "完整可达",
+        "Server-1"
+      ],
+      "expected_device": "Server-1",
+      "expected_device_ip": "192.168.50.10",
+      "expected_evidence_keywords": [
+        "PC-JX1",
+        "SW-JX-2960",
+        "Core-3650",
+        "Server-1"
+      ],
+      "expected_actions": [],
+      "fault": null,
+      "w9": null,
+      "w10": null
+    },
+    {
+      "id": "s32",
+      "category": "path_trace",
+      "question": "从 PC-JX1 访问 Server-1 为什么访问不通？路径在哪里断了？",
+      "expected_root_cause": "上联链路中断，路径断在 SW-JX-2960 Fa0/24 ↔ Core-3650 Gi1/0/1",
+      "expected_root_cause_keywords": [
+        "断点",
+        "中断",
+        "SW-JX-2960"
+      ],
+      "expected_device": "SW-JX-2960",
+      "expected_device_ip": "192.168.10.11",
+      "expected_evidence_keywords": [
+        "Fa0/24",
+        "Gi1/0/1",
+        "断点"
+      ],
+      "expected_actions": [],
+      "fault": {
+        "type": "link_down",
+        "link_id": "link-core-jx"
+      },
+      "w9": null,
+      "w10": null
+    },
+    {
+      "id": "s33",
+      "category": "alert_groups",
+      "question": "现在有哪些告警？根因是什么？",
+      "expected_root_cause": "2 个根因分组：链路中断（下游被抑制）+ 独立告警",
+      "expected_root_cause_keywords": [
+        "根因分组",
+        "链路中断"
+      ],
+      "expected_device": "Core-3650",
+      "expected_device_ip": "192.168.10.1",
+      "expected_evidence_keywords": [
+        "根因",
+        "被抑制",
+        "分组"
+      ],
+      "expected_actions": [],
+      "fault": {
+        "type": "link_down",
+        "link_id": "link-core-jx"
+      },
+      "w9": {
+        "alerts": [
+          {
+            "id": 401,
+            "state": "open",
+            "alert_type": "host_down",
+            "severity": "critical",
+            "title": "终端离线：PC-JX1",
+            "detail": "PC-JX1 ping=FAILURE",
+            "device_id": "host-pc-jx1"
+          },
+          {
+            "id": 402,
+            "state": "open",
+            "alert_type": "host_down",
+            "severity": "critical",
+            "title": "终端离线：PC-JX2",
+            "detail": "PC-JX2 ping=FAILURE",
+            "device_id": "host-pc-jx2"
+          },
+          {
+            "id": 403,
+            "state": "open",
+            "alert_type": "cpu_high",
+            "severity": "warning",
+            "title": "CPU 负载过高：SW-SS-2960",
+            "detail": "CPU 利用率 94%",
+            "device_id": "dev-sw-ss-2960"
+          }
+        ]
+      },
+      "w10": null
+    },
+    {
+      "id": "s34",
+      "category": "alert_groups",
+      "question": "有多少告警被上游抑制了？按根因分组看一下。",
+      "expected_root_cause": "链路中断为根因，下游终端告警被上游抑制",
+      "expected_root_cause_keywords": [
+        "抑制",
+        "根因",
+        "链路中断"
+      ],
+      "expected_device": "SW-JX-2960",
+      "expected_device_ip": "192.168.10.11",
+      "expected_evidence_keywords": [
+        "被上游抑制",
+        "SW-JX-2960",
+        "分组"
+      ],
+      "expected_actions": [],
+      "fault": {
+        "type": "link_down",
+        "link_id": "link-core-jx"
+      },
+      "w9": {
+        "alerts": [
+          {
+            "id": 411,
+            "state": "open",
+            "alert_type": "host_down",
+            "severity": "critical",
+            "title": "终端离线：PC-JX1",
+            "detail": "PC-JX1 ping=FAILURE",
+            "device_id": "host-pc-jx1"
+          },
+          {
+            "id": 412,
+            "state": "open",
+            "alert_type": "host_down",
+            "severity": "critical",
+            "title": "终端离线：PC-JX2",
+            "detail": "PC-JX2 ping=FAILURE",
+            "device_id": "host-pc-jx2"
+          }
+        ]
+      },
+      "w10": null
+    },
+    {
+      "id": "s35",
+      "category": "notify",
+      "question": "告警通知配好了吗？Webhook 是什么状态？",
+      "expected_root_cause": "告警通知已启用（webhook generic，最低级别 critical）",
+      "expected_root_cause_keywords": [
+        "通知",
+        "已启用"
+      ],
+      "expected_device": "Webhook",
+      "expected_evidence_keywords": [
+        "已启用",
+        "generic",
+        "critical"
+      ],
+      "expected_actions": [],
+      "fault": null,
+      "w9": null,
+      "w10": {
+        "notify": {
+          "enabled": true,
+          "type": "generic",
+          "min_severity": "critical",
+          "last_sent_at": 1793356000.0,
+          "last_error": null,
+          "sent_count": 3,
+          "url_configured": true
+        }
+      }
+    },
+    {
+      "id": "s36",
+      "category": "knowledge",
+      "question": "宿舍楼要接入一台 2960 交换机，上联核心怎么配置？",
+      "expected_root_cause": "2960 上联核心用 trunk 放行 VLAN10+业务 VLAN，管理 SVI 指向核心",
+      "expected_root_cause_keywords": [
+        "trunk",
+        "上联核心",
+        "VLAN10"
+      ],
+      "expected_device": "Core-3650",
+      "expected_device_ip": "192.168.10.1",
+      "expected_evidence_keywords": [
+        "[K1]",
+        "trunk",
+        "VLAN"
+      ],
+      "fault": null,
+      "w9": null,
+      "w10": null,
+      "w12": {
+        "rag": true
+      }
+    },
+    {
+      "id": "s37",
+      "category": "knowledge",
+      "question": "NC 告警为什么清除慢？",
+      "expected_root_cause": "NC 告警清除存在采集/判定滞后，属数据源滞后（stale_source）",
+      "expected_root_cause_keywords": [
+        "滞后",
+        "清除慢"
+      ],
+      "expected_device": "NC",
+      "expected_device_ip": "192.168.10.100",
+      "expected_evidence_keywords": [
+        "[K1]",
+        "滞后",
+        "数据源"
+      ],
+      "fault": null,
+      "w9": null,
+      "w10": null,
+      "w12": {
+        "rag": true
+      }
+    },
+    {
+      "id": "s38",
+      "category": "knowledge",
+      "question": "学校食堂的 Wi-Fi 密码是多少？",
+      "expected_root_cause": "知识库无相关内容，明确不编造",
+      "expected_root_cause_keywords": [
+        "知识库无相关内容"
+      ],
+      "expected_device": "Wi-Fi",
+      "expected_device_ip": null,
+      "expected_evidence_keywords": [
+        "知识库无相关内容",
+        "不会编造"
+      ],
+      "fault": null,
+      "w9": null,
+      "w10": null,
+      "w12": {
+        "rag": true,
+        "no_hit": true
+      }
+    }
+  ]
+}

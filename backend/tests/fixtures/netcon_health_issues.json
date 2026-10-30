@@ -1,0 +1,18 @@
+{
+  "response": [
+    {
+      "issueId": "issue-1001",
+      "issueName": "Device Unreachable",
+      "issueDescription": "Device 10.10.2.21 is not reachable via management network",
+      "issueTimestamp": 1761751200000,
+      "issueSource": "device-2222"
+    },
+    {
+      "issueName": "Interface Down",
+      "issueDescription": "Interface GigabitEthernet1/0/12 is down",
+      "issueTimestamp": 1761751300000,
+      "issueSource": "device-2222"
+    }
+  ],
+  "version": "1.0"
+}

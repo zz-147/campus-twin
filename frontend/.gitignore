@@ -1,0 +1,23 @@
+# 依赖与构建产物
+node_modules/
+dist/
+
+# 本地环境变量
+.env.local
+.env.*.local
+
+# 日志
+*.log
+
+# 冒烟/自测临时产物（报告与临时浏览器用户目录由 scripts/*.mjs 生成）
+scripts/.smoke-profile/
+scripts/.edge-profile*/
+scripts/.task5/
+scripts/.task7/
+scripts/verify-report.txt
+scripts/smoke-report.txt
+scripts/smoke-demo-report.txt
+scripts/smoke-ai-offline-report.txt
+scripts/smoke-w9-report.txt
+scripts/smoke-preview-console.txt
+scripts/preview-index.html

@@ -1,0 +1,6 @@
+services:
+  # Node 24 + npm 已就绪；npx 使用 npmmirror + workspace npm cache（见 config.json env）
+  filesystem:
+    command: npx -y @modelcontextprotocol/server-filesystem D:\\zdsh\\campus-twin\\configs D:\\zdsh\\campus-twin\\docs
+  memory:
+    command: npx -y @modelcontextprotocol/server-memory

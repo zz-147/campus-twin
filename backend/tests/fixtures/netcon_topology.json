@@ -1,0 +1,31 @@
+{
+  "response": {
+    "nodes": [
+      {"id": "device-1111", "x": 120.5, "y": 80, "label": "CORE-R1", "role": "CORE"},
+      {"id": "device-2222", "x": 220, "y": 180.25, "label": "ACC-SW1", "role": "ACCESS"},
+      {"id": "device-3333", "x": 320, "y": 180}
+    ],
+    "links": [
+      {
+        "id": "link-1",
+        "source": "device-1111",
+        "target": "device-2222",
+        "startPortName": "GigabitEthernet0/0/1",
+        "endPortName": "GigabitEthernet0/1",
+        "startPortSpeed": "10Gbps",
+        "endPortSpeed": "10Gbps",
+        "linkStatus": "up"
+      },
+      {
+        "source": "device-1111",
+        "target": "device-3333",
+        "startPortName": "GigabitEthernet0/0/2",
+        "endPortName": "GigabitEthernet0/2",
+        "startPortSpeed": 100000,
+        "endPortSpeed": "100000",
+        "linkStatus": "down"
+      }
+    ]
+  },
+  "version": "1.0"
+}

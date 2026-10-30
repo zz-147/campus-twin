@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="校园网络数字孪生 3D 可视化大屏：实时接入 Packet Tracer Network Controller 真实采集数据" />
+    <title>校园网络数字孪生 · 3D 运维大屏</title>
+  </head>
+  <body>
+    <div id="app">
+      <!-- Three.js 渲染容器（WebGL canvas 由 CampusScene 注入） -->
+      <div id="scene-root" aria-label="校园数字孪生三维场景"></div>
+
+      <!-- DOM 覆盖层：状态栏 / 面板 / 提示。这一层默认不拦截鼠标事件，只有可交互元素才拦截 -->
+      <div id="ui-layer">
+        <div class="vignette" aria-hidden="true"></div>
+        <header class="topbar">
+          <div class="brand">
+            <span class="brand-mark" aria-hidden="true"></span>
+            <div class="brand-text">
+              <h1>校园网络数字孪生</h1>
+              <p>CAMPUS TWIN · 3D OPERATIONS DASHBOARD</p>
+            </div>
+          </div>
+
+          <div class="stats">
+            <div class="stat">
+              <span class="stat-label">网络健康度</span>
+              <span class="stat-value" id="stat-health">—</span>
+              <span class="stat-bar"><i id="stat-health-bar"></i></span>
+            </div>
+            <div class="stat">
+              <span class="stat-label">设备在线</span>
+              <span class="stat-value" id="stat-devices">—</span>
+              <span class="stat-sub" id="stat-devices-sub">—</span>
+            </div>
+            <div class="stat">
+              <span class="stat-label">主机 / 终端</span>
+              <span class="stat-value" id="stat-hosts">—</span>
+            </div>
+            <div class="stat">
+              <span class="stat-label">活跃告警</span>
+              <span class="stat-value" id="stat-alerts">—</span>
+              <span class="stat-sub" id="stat-alerts-sub">—</span>
+            </div>
+            <div class="stat">
+              <span class="stat-label">采集状态</span>
+              <span class="stat-value small" id="stat-collect">—</span>
+            </div>
+            <div class="stat">
+              <span class="stat-label">数据新鲜度</span>
+              <span class="stat-value small" id="stat-freshness">—</span>
+              <span class="stat-sub" id="stat-freshness-sub">—</span>
+            </div>
+            <div class="stat">
+              <span class="stat-label">后端连接</span>
+              <span class="stat-value small" id="stat-conn">未连接</span>
+              <span class="stat-sub" id="stat-api">—</span>
+            </div>
+            <div class="stat">
+              <span class="stat-label">数据来源</span>
+              <span class="stat-value small" id="stat-source">—</span>
+            </div>
+            <div class="stat stat-notify" id="stat-notify">
+              <span class="stat-label">告警通知</span>
+              <span class="stat-value small" id="stat-notify-value">—</span>
+              <span class="stat-sub" id="stat-notify-sub">未配置</span>
+              <button type="button" class="stat-action hidden" id="btn-notify-test" title="发送测试通知">测试</button>
+            </div>
+          </div>
+
+          <div class="controls">
+            <label class="switch" title="场景自动旋转">
+              <input type="checkbox" id="toggle-rotate" checked />
+              <span>自动旋转</span>
+            </label>
+            <label class="switch" title="后端离线时使用内置演示数据（默认关闭）">
+              <input type="checkbox" id="toggle-mock" />
+              <span>演示数据</span>
+            </label>
+            <button type="button" class="btn" id="btn-refresh">刷新</button>
+            <button type="button" class="btn ghost" id="btn-reset">复位视角</button>
+          </div>
+        </header>
+
+        <!-- 后端离线提示条 -->
+        <div class="offline-banner hidden" id="offline-banner">
+          <span class="dot warn" aria-hidden="true"></span>
+          <div class="offline-text">
+            <strong>后端未连接</strong>
+            <span id="offline-detail">无法获取真实采集数据</span>
+          </div>
+          <button type="button" class="btn small" id="btn-retry">重试</button>
+          <button type="button" class="btn small ghost" id="btn-demo">开启演示数据</button>
+        </div>
+
+        <!-- W9：自动发现的新设备提示条（配置驱动场景） -->
+        <div class="new-device-banner hidden" id="new-device-banner">
+          <div class="new-device-head">
+            <span class="dot warn" aria-hidden="true"></span>
+            <strong>发现 <span id="new-device-count">0</span> 台新设备</strong>
+            <span class="new-device-hint">（后端配置自动发现，确认后正式加入场景）</span>
+            <button type="button" class="btn small ghost" id="new-device-collapse">收起</button>
+          </div>
+          <div class="new-device-list" id="new-device-list"></div>
+        </div>
+
+        <!-- 告警 / 健康问题列表 -->
+        <aside class="panel alerts-panel" id="alerts-panel">
+          <div class="panel-head">
+            <h2>告警 / 健康问题</h2>
+            <div class="panel-head-right">
+              <button type="button" class="alert-clear-btn" id="btn-clear-cleared" title="清空全部已恢复告警" disabled>清空已恢复（0）</button>
+              <span class="badge" id="alert-count">0</span>
+            </div>
+          </div>
+          <!-- W10：全部 / 按根因分组 视图切换 -->
+          <div class="alert-view-bar" id="alert-view-bar">
+            <button type="button" class="alert-view-btn active" data-alert-view="all" id="alert-view-all">全部</button>
+            <button type="button" class="alert-view-btn" data-alert-view="groups" id="alert-view-groups">按根因分组</button>
+            <span class="alert-view-hint hidden" id="alert-groups-hint"></span>
+          </div>
+          <ul class="alert-list" id="alerts-list">
+            <li class="empty">暂无告警</li>
+          </ul>
+          <div class="panel-foot" id="alerts-foot">数据来自后端 /api/issues</div>
+        </aside>
+
+        <!-- 右侧信息坞：设备详情 / AI 运维助手 / 路径追踪 / 图例 四个页签 -->
+        <aside class="panel right-dock" id="right-dock">
+          <div class="dock-tabs" role="tablist" aria-label="右侧信息面板">
+            <button type="button" class="dock-tab active" data-tab="detail" id="tab-detail" role="tab" aria-selected="true">设备详情</button>
+            <button type="button" class="dock-tab" data-tab="ai" id="tab-ai" role="tab" aria-selected="false">
+              <span class="ai-tab-dot" id="ai-tab-dot" aria-hidden="true"></span>AI 运维助手
+            </button>
+            <button type="button" class="dock-tab" data-tab="path" id="tab-path" role="tab" aria-selected="false">路径追踪</button>
+            <button type="button" class="dock-tab" data-tab="legend" id="tab-legend" role="tab" aria-selected="false">图例</button>
+          </div>
+
+          <section class="dock-pane active" id="pane-detail" data-pane="detail" role="tabpanel" aria-labelledby="tab-detail">
+            <button type="button" class="close hidden" id="btn-close-detail" title="取消选中">×</button>
+            <div class="detail-body" id="detail-body">
+              <p class="empty">点击场景中的设备标记查看详情</p>
+            </div>
+          </section>
+
+          <section class="dock-pane ai-pane" id="pane-ai" data-pane="ai" role="tabpanel" aria-labelledby="tab-ai">
+            <div class="ai-head">
+              <div class="ai-status" id="ai-status">
+                <span class="dot" id="ai-status-dot" aria-hidden="true"></span>
+                <span class="ai-status-text" id="ai-status-text">正在检测 AI 服务…</span>
+                <button type="button" class="ai-retry hidden" id="ai-retry" title="重新检测 AI 服务">重试连接</button>
+              </div>
+              <div class="ai-head-buttons">
+                <button type="button" class="btn small ghost" id="ai-history" title="查看/管理历史会话">历史会话</button>
+                <button type="button" class="btn small ghost" id="ai-new" title="开始新对话">新对话</button>
+              </div>
+            </div>
+            <div class="ai-model-line" id="ai-model-line">Agent :8100 · 真实大模型运维问答</div>
+            <div class="ai-quick" id="ai-quick"></div>
+            <div class="ai-messages" id="ai-messages"></div>
+            <form class="ai-input-row" id="ai-form">
+              <textarea id="ai-input" rows="2" maxlength="2000" placeholder="输入运维问题，Enter 发送 / Shift+Enter 换行"></textarea>
+              <button type="submit" class="btn ai-send" id="ai-send">发送</button>
+            </form>
+            <div class="ai-hint" id="ai-hint">AI 只读后端数据 · 单次回答通常 20~40 秒</div>
+
+            <!-- W9：历史会话抽屉（覆盖在对话区上方） -->
+            <div class="ai-history-panel hidden" id="ai-history-panel">
+              <div class="ai-history-head">
+                <span>历史会话</span>
+                <button type="button" class="close" id="ai-history-close" title="关闭">×</button>
+              </div>
+              <div class="ai-history-list" id="ai-history-list">
+                <div class="ai-history-empty">正在加载会话…</div>
+              </div>
+              <div class="ai-history-foot">
+                <button type="button" class="btn small ghost danger" id="ai-history-clear">清空全部</button>
+              </div>
+            </div>
+          </section>
+
+          <section class="dock-pane path-pane" id="pane-path" data-pane="path" role="tabpanel" aria-labelledby="tab-path">
+            <div class="path-head">
+              <div class="path-title">路径追踪 <span class="path-sub">NC flow-analysis</span></div>
+              <button type="button" class="btn small ghost" id="path-clear-btn" disabled>清除路径</button>
+            </div>
+            <div class="path-form">
+              <label class="path-field">
+                <span>源</span>
+                <select id="path-source" aria-label="路径源设备"></select>
+              </label>
+              <button type="button" class="path-swap" id="path-swap" title="交换源/目的">⇅</button>
+              <label class="path-field">
+                <span>目的</span>
+                <select id="path-dest" aria-label="路径目的设备"></select>
+              </label>
+            </div>
+            <button type="button" class="btn path-run" id="path-trace-btn">追踪路径</button>
+            <div class="path-status" id="path-status">选择源与目的设备后点击「追踪路径」。</div>
+            <div class="path-summary" id="path-summary"></div>
+            <ul class="path-hops" id="path-hops">
+              <li class="empty">尚未追踪路径</li>
+            </ul>
+            <div class="path-tip">
+              3D 场景中发光路径 = 数据流向，数字标签 = hop 编号；<br />
+              partial/failed 时红色 ✕ 为断点；点击「清除路径」恢复普通视角。
+            </div>
+          </section>
+
+          <section class="dock-pane" id="pane-legend" data-pane="legend" role="tabpanel" aria-labelledby="tab-legend">
+            <div class="scene-meta fallback" id="scene-meta">场景 默认布局</div>
+            <ul class="legend" id="legend"></ul>
+            <div class="legend-tip">
+              左键拖拽旋转 · 滚轮缩放 · 右键平移<br />
+              点击设备聚焦视角，点击空白处取消选中
+            </div>
+          </section>
+        </aside>
+
+        <div class="tooltip hidden" id="tooltip"></div>
+        <div class="toast hidden" id="toast"></div>
+        <div class="runtime-error hidden" id="runtime-error"></div>
+      </div>
+
+      <!-- 首屏加载遮罩 -->
+      <div class="loading-overlay" id="loading-overlay">
+        <div class="loading-box">
+          <div class="spinner" aria-hidden="true"></div>
+          <p class="loading-title" id="loading-text">正在初始化数字孪生场景…</p>
+          <p class="loading-sub" id="loading-sub">等待后端数据 /api/devices</p>
+        </div>
+      </div>
+
+      <!-- 演示数据水印（默认隐藏；打开 mock 后显示） -->
+      <div class="demo-badge hidden" id="demo-badge">演示数据 · 非真实采集</div>
+
+      <!-- 自测辅助节点：main.js 写入场景对象数/数据源等统计，供 --dump-dom 自动校验 -->
+      <div class="dev-stats" id="dev-stats" aria-hidden="true"></div>
+    </div>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

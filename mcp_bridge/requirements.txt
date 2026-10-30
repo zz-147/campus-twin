@@ -1,0 +1,6 @@
+# campus-twin MCP Bridge（Python 3.14 venv: D:\zdsh\campus-twin\.venv-mcp314）
+# 注：该 venv 离线且未装 FastAPI，桥使用已预装的 Starlette 1.10（ASGI）+ uvicorn，接口等价。
+mcp==1.30.0
+starlette>=1.0,<2.0
+uvicorn>=0.30,<1.0
+httpx>=0.27,<1.0
