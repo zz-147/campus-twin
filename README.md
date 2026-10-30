@@ -136,6 +136,19 @@ docker compose down
 拓扑/设备/主机/健康问题是仿真网络真实运行状态；只有 PT 不暴露的接口计数器等指标由行为仿真引擎生成，
 代码与前端均显式标注来源。
 
+## W15 评测、可靠性与可观测性
+
+| 项 | 真实数据 |
+|---|---|
+| RAG 语料 | 56 篇文档 → **107 chunk**（3 种 chunking：fixed 94 / section 107 / semantic 123） |
+| RAG 评测 | 48 query（6 类），最佳 semantic：BM25 recall@5 1.0 / hybrid MRR **0.877** / hybrid+rerank faithfulness **0.660** / 可溯源 1.000 |
+| Agent 可靠性 | 277 tests；重试 2 次（1s/3s）、熔断 5 次/60s、幂等缓存、脏数据归一化；写操作自动执行违规 0 |
+| 断点恢复 | 图在 interrupt 暂停 → 进程退出 → 同 conversation_id 恢复 → 确认执行（不同 PID，总 4308ms） |
+| 可观测性 | `trace_events` 表 + `/api/traces`、`/api/traces/{id}`、`/api/metrics/agent`、`/api/rag/report`；前端「可观测性」页签 |
+| 部署/CI | WSL2 Docker 28.1.1 + Compose v2.35.1：`compose config` PASS、hello-world 运行成功；**GitHub Actions 6 job 全绿** |
+
+详见 [agent/README.md §7.10/§7.11](agent/README.md)、[docs/部署与CI.md](docs/部署与CI.md)、[RAG 评测报告](agent/app/agent/eval/rag_report.json)、[断点恢复报告](agent/app/agent/eval/recovery_report.json)。
+
 ## 目录结构
 
 ```
@@ -192,4 +205,5 @@ campus-twin/
 | **W12 SSE 流式 + 轻量 RAG** | ✅ `/api/chat/stream` 逐 token SSE（真实 LLM 2600+ token 事件）+ 前端逐字渲染/停止生成；18 知识块 BM25-lite 检索 + `[K1]` 引用 + 无命中不编造（Agent 207 tests，38 场景 100%） |
 | **W13 MCP 双向集成** | ✅ 自建 **MCP Server**（10 tools / 4 resources / 3 prompts，Claude Desktop/Cursor 可接入）+ **MCP Client 桥接**（filesystem/memory 23 工具 → Agent）；256 Agent tests，只读白名单 + 审计 |
 | **W14 飞书机器人** | ✅ 长连接双向接入：飞书群里「状态 / 告警 / 路径 / 读配置 / 任意问答」；白名单 + 限流 + 去重 + 写操作只提示不执行；19 项离线自测通过 |
+| **W15 评测/可靠性/可观测性/部署** | ✅ RAG 评测闭环（107 chunks / 48 query / 4 配置：recall@5 1.0、MRR 0.877、引用准确率 0.333、faithfulness 0.660）；Agent 277 tests + 故障注入（重试/熔断/幂等/脏数据）+ 断点恢复；trace_events + 4 个 API；Docker Compose 真实校验 + GitHub Actions 6 job 全绿 |
 | **W15 P2 可部署性 / CI / 架构图** | ✅ 4 个 Dockerfile + `docker-compose.yml`（8000/8100/5173/8200，healthcheck + depends_on）+ 6 job 离线 Actions CI + README Mermaid 架构图；⚠️ 本机无 Docker，Compose/CI 仅静态校验（部署说明见 docs/部署与CI.md） |

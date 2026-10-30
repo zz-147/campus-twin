@@ -280,6 +280,18 @@ caption(s, 6.85, 4.62, 6.15, "AI 真实排障：根因、依据（设备/IP/端�
 textbox(s, 0.45, 5.45, 12.4, 1.3, "· 任意 MCP 客户端（Claude Desktop / Cursor / VS Code / Inspector）可接入平台能力\n· AI 回答强制引用真实数据；无数据明确说明，不编造", size=11.5, color=MUTED, line_spacing=1.35)
 footer(s, 14)
 
+# ---------------- Slide W15-A: RAG 评测闭环 ----------------
+s = new_slide()
+title_block(s, "14 · RAG 评测闭环（W15）", "56 篇文档 / 107 chunk / 3 种切分 / 48 query / 4 种检索配置")
+picture_fit(s, SHOTS / "16-RAG评测闭环.png", 0.6, 1.15, 12.1, 5.6)
+footer(s)
+
+# ---------------- Slide W15-B: 可靠性 / 可观测性 / 部署 ----------------
+s = new_slide()
+title_block(s, "15 · 可靠性 / 可观测性 / 可部署性（W15）", "故障注入 · 断点恢复 · trace API · Docker + GitHub Actions CI")
+picture_fit(s, SHOTS / "17-可靠性与可观测性.png", 0.6, 1.15, 12.1, 5.6)
+footer(s)
+
 # ---------------- Slide 15: 结尾 ----------------
 s = new_slide()
 textbox(s, 0.9, 1.0, 11.6, 0.6, "技术栈与核心数据", size=30, color=TEXT, bold=True)
