@@ -156,7 +156,7 @@ campus-twin/
 ├─ .github/workflows/ci.yml  GitHub Actions 6 job 离线 CI（backend/agent/mcp/feishu/frontend）
 ├─ docker-compose.yml  Docker Compose 一键启动（4 服务，⚠️ 本机未实测）
 ├─ backend/          采集+检测服务（FastAPI :8000，171 tests）
-├─ agent/            AI 运维 Agent（FastAPI :8100，256 tests，38 场景评测）
+├─ agent/            AI 运维 Agent（FastAPI :8100，277 tests，38 场景评测）
 ├─ mcp_server/       对外 MCP Server（stdio，10 tools/4 resources/3 prompts）
 ├─ mcp_bridge/       MCP Client 桥（filesystem/memory → Agent，:8200）
 ├─ feishu-bot/      飞书机器人（长连接双向接入，Node.js，无需公网）
@@ -185,7 +185,7 @@ campus-twin/
 | [部署与 CI](docs/部署与CI.md) | 本机/Docker Compose/Actions CI、PT NC 容器边界、静态校验与未实测项 |
 | [飞书机器人接入](docs/飞书机器人接入.md) | 长连接双向接入：飞书里问 AI/查网络；白名单+限流+去重；写操作不执行 |
 | [作品集截图](docs/作品集.md) | 18 张真实运行截图（PT 拓扑/大屏/AI/路径追踪/MCP/架构图/评测数据）+ 使用建议 |
-| [作品集 PDF](docs/校园网络数字孪生运维平台-作品集.pdf) | 15 页深色主题作品集（PPTX 源文件同目录），面试投屏/附件可直接用 |
+| [作品集 PDF](docs/校园网络数字孪生运维平台-作品集.pdf) | 17 页深色主题作品集（PPTX 源文件同目录），面试投屏/附件可直接用 |
 | [进度交接与明日计划](docs/进度交接与明日计划.md) | 阶段进度与待办 |
 
 ## 里程碑
@@ -203,7 +203,7 @@ campus-twin/
 | **W10 路径追踪 / 告警根因分组 / Webhook / SNMP 驱动** | ✅ NC flow-analysis 真实路径 4 跳 + 3D 发光路径/断点、告警根因分组与抑制、Webhook 通知（本地接收器实测）、SNMP 可插拔驱动（后端 171 tests / Agent 174 tests / 35 场景评测 100%） |
 | **W11 LangGraph 编排引擎** | ✅ StateGraph 节点+条件边、SqliteSaver checkpointer（多轮续聊/重启可恢复）、`interrupt()` 人机中断（写操作暂停图→确认后 resume）；classic 引擎可一键回退（Agent 192 tests，两引擎评测均 100%） |
 | **W12 SSE 流式 + 轻量 RAG** | ✅ `/api/chat/stream` 逐 token SSE（真实 LLM 2600+ token 事件）+ 前端逐字渲染/停止生成；18 知识块 BM25-lite 检索 + `[K1]` 引用 + 无命中不编造（Agent 207 tests，38 场景 100%） |
-| **W13 MCP 双向集成** | ✅ 自建 **MCP Server**（10 tools / 4 resources / 3 prompts，Claude Desktop/Cursor 可接入）+ **MCP Client 桥接**（filesystem/memory 23 工具 → Agent）；256 Agent tests，只读白名单 + 审计 |
+| **W13 MCP 双向集成** | ✅ 自建 **MCP Server**（10 tools / 4 resources / 3 prompts，Claude Desktop/Cursor 可接入）+ **MCP Client 桥接**（filesystem/memory 23 工具 → Agent）；277 Agent tests，只读白名单 + 审计 |
 | **W14 飞书机器人** | ✅ 长连接双向接入：飞书群里「状态 / 告警 / 路径 / 读配置 / 任意问答」；白名单 + 限流 + 去重 + 写操作只提示不执行；19 项离线自测通过 |
 | **W15 评测/可靠性/可观测性/部署** | ✅ RAG 评测闭环（107 chunks / 48 query / 4 配置：recall@5 1.0、MRR 0.877、引用准确率 0.333、faithfulness 0.660）；Agent 277 tests + 故障注入（重试/熔断/幂等/脏数据）+ 断点恢复；trace_events + 4 个 API；Docker Compose 真实校验 + GitHub Actions 6 job 全绿 |
 | **W15 P2 可部署性 / CI / 架构图** | ✅ 4 个 Dockerfile + `docker-compose.yml`（8000/8100/5173/8200，healthcheck + depends_on）+ 6 job 离线 Actions CI + README Mermaid 架构图；⚠️ 本机无 Docker，Compose/CI 仅静态校验（部署说明见 docs/部署与CI.md） |

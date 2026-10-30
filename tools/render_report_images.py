@@ -71,7 +71,7 @@ def make_metrics() -> Path:
 
     # 顶部四个大数字卡
     cards = [
-        ("Agent 测试", "256", "passed", GREEN),
+        ("Agent 测试", "277", "passed", GREEN),
         ("后端测试", "171", "passed", GREEN),
         ("评测场景", "38/38", "根因命中 100%", CYAN),
         ("动作正确率", "15/15", "自动执行违规 0", AMBER),
@@ -86,7 +86,7 @@ def make_metrics() -> Path:
 
     # 两个面板：评测维度 + 工程规模
     rounded(d, (60, 330, 790, 930), radius=18, fill=PANEL)
-    text(d, (88, 352), "38 场景评测（LangGraph / classic 双引擎）", f_sec, TEXT)
+    text(d, (88, 352), "38 场景离线评测（双引擎，mock provider）", f_sec, TEXT)
     rows = [
         ("根因定位准确率", "100%", "38 / 38"),
         ("故障设备定位", "100%", "38 / 38"),
@@ -107,7 +107,7 @@ def make_metrics() -> Path:
     text(d, (848, 352), "工程规模", f_sec, TEXT)
     rows2 = [
         ("后端 pytest", "171 passed", "采集/检测/告警/路径/通知"),
-        ("Agent pytest", "256 passed", "LangGraph / 路由 / SSE / RAG / MCP"),
+        ("Agent pytest", "277 passed", "LangGraph / 路由 / SSE / RAG / MCP"),
         ("MCP Server", "30 passed", "10 tools / 4 resources / 3 prompts"),
         ("MCP Bridge", "10 passed", "filesystem + memory 共 23 工具"),
         ("前端构建", "27 modules", "gzip JS 194kB / CSS 8.5kB"),
@@ -274,7 +274,7 @@ def make_mcp_card() -> Path:
         "verify_bridge.py → ALL_BRIDGE_VERIFY_PASS",
         "total_tools=23；读 configs/core-3650.txt 成功",
         "memory 写入/检索成功；越权写被白名单拒绝",
-        "Agent 256 tests 全绿；38 场景评测 100% 无回归",
+        "Agent 277 tests 全绿；38 场景评测 100% 无回归",
     ]):
         text(d, (848, 412 + i * 32), "· " + line, f_item, MUTED)
     text(d, (848, 556), "Agent 实测（真实 DeepSeek）", f_small, CYAN)

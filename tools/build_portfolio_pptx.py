@@ -147,8 +147,8 @@ textbox(s, 0.9, 2.9, 11.6, 0.5, "真实网络数据 · LangGraph 多 Agent · MC
 chips = [
     ("5 设备 / 6 主机 真实纳管", GREEN),
     ("38 场景评测 100%", AMBER),
-    ("171 + 256 tests", CYAN),
-    ("MCP 23 工具", PURPLE),
+    ("171 + 277 tests", CYAN),
+    ("MCP 双向集成", PURPLE),
 ]
 cx = 0.9
 for label, color in chips:
@@ -265,7 +265,7 @@ footer(s, 12)
 
 # ---------------- Slide 13: 测试与评测 ----------------
 s = new_slide()
-title_block(s, "12 · 真实测试与评测数据", "后端 171 / Agent 256 / MCP 40 tests；38 场景双引擎 100%")
+title_block(s, "12 · 真实测试与评测数据", "后端 171 / Agent 277 / MCP 30 tests；38 场景离线评测 100%")
 picture_fit(s, SHOTS / "14-测试与评测数据.png", 0.85, 1.2, 11.6, 5.5)
 caption(s, 0.85, 6.7, 11.6, "自动执行违规 0（所有写操作必须人工确认）；评测集覆盖 17 类场景；全部离线可复现")
 footer(s, 13)
@@ -283,7 +283,8 @@ footer(s, 14)
 # ---------------- Slide W15-A: RAG 评测闭环 ----------------
 s = new_slide()
 title_block(s, "14 · RAG 评测闭环（W15）", "56 篇文档 / 107 chunk / 3 种切分 / 48 query / 4 种检索配置")
-picture_fit(s, SHOTS / "18-RAG评测闭环.png", 0.6, 1.15, 12.1, 5.6)
+picture_fit(s, SHOTS / "18-RAG评测闭环.png", 0.6, 1.15, 12.1, 5.2)
+textbox(s, 0.6, 6.42, 12.1, 0.62, "口径：recall@5 = top-5 命中相关块的比例；MRR = 首个相关结果排名倒数的均值；" "引用准确率 = 引用块中真正含答案证据的比例（严格口径）；faithfulness = 回答断言被引用内容支持的比例；" "可溯源率 = 引用均可定位到检索结果。\n最佳配置：semantic 切分 + hybrid(RRF)，48 query；另附 3 种切分 × 4 种检索配置的完整对比（含 rerank）。", size=8.5, color=MUTED, line_spacing=1.1)
 footer(s, 15)
 
 # ---------------- Slide W15-B: 可靠性 / 可观测性 / 部署 ----------------
@@ -302,10 +303,10 @@ textbox(s, 0.9, 5.55, 6.0, 1.3, "说明：截图均为真实运行；04/08/09 �
 textbox(s, 7.2, 2.35, 5.4, 0.35, "核心数据", size=15, color=GREEN, bold=True)
 data = [
     ("真实网络", "5 设备 / 6 主机 / 4 链路"),
-    ("测试", "171 + 256 + 40 tests"),
-    ("评测", "38 场景：根因/设备/动作 100%"),
+    ("测试", "171 + 277 + 30 tests"),
+    ("评测", "38 场景离线：根因/设备/动作 100%"),
     ("安全", "自动执行违规 0"),
-    ("AI", "LangGraph 12 节点 / 23 工具"),
+    ("AI", "4 节点 + 8 role / 23 工具"),
     ("MCP", "Server 10 工具 + Bridge 23 工具"),
     ("前端", "3D 大屏 / 流式 / 引用"),
 ]

@@ -53,3 +53,7 @@ docs/作品集截图.zip
 *.local
 .idea/
 .vscode/settings.json
+
+# ===== 内部材料 / 简历生成脚本（不公开）=====
+docs/面试官视角审阅*
+tools/build_resume*.py
