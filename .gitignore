@@ -69,3 +69,7 @@ tools/build_resume*.py
 tools/*resume*.py
 pytest-of-*/
 **/pytest-of-*/
+
+# ===== 讲解逐字稿（含个人姓名，不公开）=====
+docs/*逐字稿*
+docs/讲解视频*
