@@ -279,10 +279,12 @@ class CollectorPipeline:
         metrics = self._resolve_metrics(result)
         self._last_metrics = metrics
 
+        # 本轮 cleared 事件落库后的行（含 id/clear_reason/resolved_at），供恢复通知使用
+        resolved_cleared: List[Dict[str, Any]] = []
         try:
             self.store.save_snapshot(result)
             self.store.save_metrics(metrics)
-            self._persist_detection(outcome)
+            resolved_cleared = self._persist_detection(outcome)
             self._prune_counter += 1
             if self._prune_counter >= PRUNE_EVERY_N_POLLS:
                 self._prune_counter = 0
@@ -337,6 +339,20 @@ class CollectorPipeline:
                     self.notify.enqueue(alert)
                 except Exception:  # noqa: BLE001 - 通知失败不能影响采集
                     logger.exception("Webhook 通知入队失败")
+        # W15：告警 cleared → 恢复通知（NOTIFY_ON_RECOVERY，默认开启；去重/重试同告警）
+        # 恢复行由 _persist_detection 落库后返回，带 id / clear_reason / resolved_at；
+        # 单轮恢复过多时由 NotifyService 合并成一张“批量恢复”卡片，避免集中恢复刷屏。
+        if resolved_cleared and self.notify is not None:
+            try:
+                queued = self.notify.notify_recoveries(resolved_cleared)
+                if queued:
+                    logger.info(
+                        "本轮 %d 条告警恢复 → 已投递 %d 张恢复通知卡片",
+                        len(resolved_cleared),
+                        queued,
+                    )
+            except Exception:  # noqa: BLE001 - 恢复通知失败不能影响采集
+                logger.exception("恢复通知入队失败")
         if outcome.alerts:
             logger.info("本轮产生 %d 条新告警", len(outcome.alerts))
 
@@ -356,10 +372,15 @@ class CollectorPipeline:
             logger.exception("检测引擎异常，本轮跳过告警（采集快照仍更新）")
             return DetectionOutcome(baseline=baseline)
 
-    def _persist_detection(self, outcome: DetectionOutcome) -> None:
-        """持久化新告警与恢复事件（active 去重由引擎+store 保证）。"""
+    def _persist_detection(self, outcome: DetectionOutcome) -> List[Dict[str, Any]]:
+        """持久化新告警与恢复事件（active 去重由引擎+store 保证）。
+
+        返回本轮成功落库的恢复行（``store.resolve_alert`` 的返回 dict，含
+        ``id`` / ``clear_reason`` / ``resolved_at``），供 W15 恢复通知使用。
+        """
         if outcome.alerts:
             self.store.save_alert_events(outcome.alerts)
+        resolved: List[Dict[str, Any]] = []
         for event in outcome.cleared:
             updated = self.store.resolve_alert(
                 dedup_key=event.dedup_key,
@@ -370,6 +391,54 @@ class CollectorPipeline:
             if updated is None:
                 # 例如历史库里没有这条 active（服务重启前已清理），只记录不报错
                 logger.debug("恢复事件找不到 active 告警：%s", event.dedup_key)
+            else:
+                # DB row 的 title 是故障标题（如“主机离线：PC-JX1”）；恢复通知要用
+                # 恢复事件标题（如“主机恢复：PC-JX1”），这里附加供 NotifyService 使用。
+                row = dict(updated)
+                row["recovery_title"] = event.title
+                row["recovery_detail"] = event.detail
+                label = self._recovery_device_label(event, row)
+                if label:
+                    row["recovery_device"] = label
+                resolved.append(row)
+        return resolved
+
+    def _recovery_device_label(
+        self, event: Any, row: Dict[str, Any]
+    ) -> Optional[str]:
+        """恢复卡片上的“设备”名称：优先 hostname，避免展示 NC 内部 UUID。
+
+        DB row 的 device_id 可能是 NC 设备 UUID、也可能是 issue_source 里的人工名，
+        因此按「host_down 的 host → 设备 UUID → 已采集 host 名/IP」顺序反查。
+        """
+        state = self._state
+        hosts = state.hosts if state is not None else {}
+        devices = state.devices if state is not None else {}
+        dedup_key = str(getattr(event, "dedup_key", "") or row.get("dedup_key") or "")
+        if dedup_key.startswith("host_down:"):
+            host = hosts.get(dedup_key.split(":", 1)[1])
+            if host is not None:
+                return host.hostname or host.ip or None
+        for candidate in (
+            getattr(event, "device_id", None),
+            row.get("device_id"),
+        ):
+            if not candidate:
+                continue
+            text = str(candidate)
+            device = devices.get(text)
+            if device is not None:
+                return device.hostname or device.management_ip or text
+            for host in hosts.values():
+                if text in (host.id, host.hostname, host.ip):
+                    return host.hostname or host.ip or text
+        title = str(getattr(event, "title", "") or "")
+        for separator in ("：", ":"):
+            if separator in title:
+                tail = title.rsplit(separator, 1)[1].strip()
+                if tail:
+                    return tail
+        return None
 
     def _resolve_metrics(self, result: CollectResult) -> List[MetricPoint]:
         """确定本轮指标：真实拓扑 + 仿真指标（始终标注 source=simulator）。"""

@@ -456,6 +456,7 @@ class Orchestrator:
                 conversation_id=conversation_id,
                 history=list(history),
                 route=route,
+                actions=self._actions,
             )
             if subtask.role == "diagnosis":
                 result = self._run_diagnosis(question, history, ctx)

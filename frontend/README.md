@@ -19,12 +19,19 @@ W15 新增 **可观测性页签**：平均延迟 / 工具错误率 / Token 总�
 （点击展开事件序列、支持按当前会话过滤）、RAG 评测指标卡（recall@5 / MRR / 引用准确率 /
 faithfulness）；Agent 接口未就绪时仅该页签优雅降级，不阻塞其它功能。
 
+W16 新增 **飞书通知设置对话框**：顶部「告警通知」stat 齿轮入口 → 状态区（启用/最近发送/最近错误/
+成功失败计数/负载类型）+ 表单（Webhook URL password、飞书/钉钉/企业微信/通用类型、最低等级、
+恢复通知、启用开关）+【保存并测试】【仅测试】【取消】；URL 不回显、不打印控制台；
+配置接口未就绪时优雅降级。
+
 - 前端技术栈：Vite 8 + 原生 ES Module + Three.js 0.186 + OrbitControls
 - 数据接入：REST 快照（首屏 / 兜底轮询）+ WebSocket `/ws` 实时推送（断线自动重连）+ 场景版本轮询（4s）
 - AI 接入：`POST /api/chat`（非流式兜底）/ **`POST /api/chat/stream`（SSE 流式）**；
   真实模型单次 20~40s，前端超时 120s；支持 actions[] 与 RAG citations
 - 可观测性：`GET /api/traces`、`GET /api/traces/{id}`、`GET /api/metrics/agent`、`GET /api/rag/report`
   （懒加载，仅打开页签时请求）
+- 通知配置：`GET /api/notify/status` + `POST /api/notify/config` + `POST /api/notify/test`
+  （配置接口由 task-33 提供，未上线时前端降级）
 - 场景规模：默认 4 栋楼 / 12 个标记；W9 支持后端配置任意数量楼栋/设备（当前真实配置 v3 = 4 栋 / 12 设备）
 - 性能：默认场景 45 个可渲染对象 / 65 个场景节点，无 LOD；路径追踪激活时额外约 17 个路径对象；
   流式 token 采用 80ms 节流粗渲染，AI 服务独立，不阻塞 3D 渲染
@@ -55,6 +62,9 @@ frontend/
 │  ├─ screenshot-w12-streaming.png # W12：AI 流式对话（状态条/工具 chip/逐 token/停止生成）
 │  ├─ screenshot-w12-rag.png      # W12：RAG 引用角标 + 参考知识（标题/来源/分数）
 │  ├─ screenshot-w15-observability.png # W15：可观测性（指标卡/trace 展开/RAG 评测卡）
+│  ├─ notify-settings.png         # W16：飞书通知设置对话框（状态区/表单/保存并测试）
+│  ├─ notify-settings-live.png    # W16：真实后端 live 保存并测试成功（脱敏 URL / HUD 同步）
+│  ├─ ai-panel-expanded.png       # W16：AI 对话框放大态（1080px 浮层 + 更大字号/输入框）
 │  ├─ screenshot-ai-offline.png   # Agent 离线降级（不影响 3D 大屏）
 │  ├─ screenshot-demo.png         # 后端离线 + 演示数据模式
 │  └─ ai-call-record.md           # 对 :8100 真实 DeepSeek 的调用实测记录
@@ -86,6 +96,7 @@ frontend/
       ├─ aiPanel.js        # AI 对话面板（流式 SSE / Markdown / trace / 会话 / action 卡片 / RAG 引用）
       ├─ pathPanel.js      # W10 路径追踪面板（源/目的选择、hop 列表、断点/错误提示）
       ├─ observability.js  # W15 可观测性面板（指标卡/trace 列表展开/RAG 评测/懒加载降级）
+      ├─ notifySettings.js # W16 通知设置对话框（飞书 Webhook 配置/状态/保存并测试/404 降级）
       ├─ newDevices.js     # W9 新设备提示条（确认加入 / 撤销 / 选择楼栋）
       ├─ dialog.js         # 通用确认弹窗（危险操作二次确认）
       ├─ markdown.js       # 极简 Markdown 渲染器（标题/列表/代码块/表格/加粗，XSS 安全）
@@ -207,6 +218,10 @@ npm run dev -- --port 5173
 - Agent 在线状态圆点（页签 + 面板内）：绿=已连接、红=未连接；离线时显示
   「AI 服务未连接（127.0.0.1:8100）」+「重试连接」，并禁用发送/快捷提问，
   但**不影响 3D 大屏、告警与实时数据**；
+- **放大/全屏**（W16）：AI 面板右上角「⛶ 放大」→ 右侧信息坞变为 1080px 宽浮层
+  （`#right-dock.ai-expanded`，窗口较小时 88vw/94vw），消息字号 12→13px、行高 1.65、
+  输入框加高；再次点击或按 **Esc** 还原；状态写入 `localStorage('campus-ai-expanded')`，
+  刷新后保持并自动切到 AI 页签；
 - provider 未配置（HTTP 503）、模型报错（HTTP 502）、超时等错误均有独立的中文提示。
 
 ### W9：配置驱动动态场景（自动新增设备/楼栋）
@@ -312,6 +327,24 @@ npm run dev -- --port 5173
 - 三个接口全部 404/不可用时页签显示「可观测性服务未就绪…不影响其它功能」，指标卡置「—」、
   trace 列表清空、RAG 卡隐藏；切换其它页签/3D 场景/AI 对话完全不受影响。
 
+### W16：飞书通知设置对话框（Webhook 配置 / 测试 / 状态展示）
+
+- **入口**：顶部「告警通知」stat 右上角齿轮按钮 `#btn-notify-config`（title「通知设置（飞书 / 钉钉 /
+  企业微信 Webhook）」）；也可以直接通过浏览器控制台 `window.__campusTwin.notifySettings.open()` 调试；
+- **对话框内容**：
+  - 状态区（只读 8 项）：启用状态、通知类型、最近发送时间、最近错误、成功/失败计数、最近负载类型、
+    恢复通知开关、脱敏 Webhook 地址；打开时先展示快照再用 `GET /api/notify/status` 刷新回填；
+  - 表单：Webhook URL（`type=password` + 显示/隐藏切换，placeholder 提示飞书机器人地址；留空=保持当前）、
+    通知类型（飞书/钉钉/企业微信/通用 Webhook）、最低等级（critical/warning）、恢复通知 checkbox、
+    启用开关；飞书群机器人获取步骤文案 + 安全提示；
+  - 按钮：【保存并测试】（`POST /api/notify/config` → `POST /api/notify/test`）、【仅测试】、【取消】；
+  - 交互：保存成功后顶部 stat 通过 `hud.setNotifyStatus()` 刷新，测试结果 toast + 对话框内联结果；
+    Esc / 点遮罩 / 取消均可关闭，关闭后移除键盘监听、焦点还原；
+- **安全**：URL 仅通过请求体提交，输入框保存成功后立即清空；页面 DOM 不残留明文、不打印 console/
+  localStorage；后端若返回明文 URL，前端展示层会本地脱敏为 `origin/path/****末4位`；
+- **降级**：`POST /api/notify/config` 404/不可用时对话框内显示「通知配置接口未就绪…配置未保存」
+  （warn 样式 + toast），对话框保留可继续查看状态/测试；不产生运行时错误。
+
 ## 数据接入与真实性说明
 
 | 页面内容 | 数据来源 |
@@ -334,6 +367,7 @@ npm run dev -- --port 5173
 | W10 路径追踪 | `POST /api/path-trace {source_ip,dest_ip}`（NC flow-analysis，最多 30s 轮询；前端超时 40s） |
 | W10 告警根因分组 | `GET /api/alerts/groups?state=active`（组/成员/suppressed_by） |
 | W10 通知状态 | `GET /api/notify/status`、`POST /api/notify/test` |
+| W16 通知配置 | `POST /api/notify/config {enabled?,webhook_url?,webhook_type?,min_severity?,on_recovery?}` → `{ok,status}`（task-33，未上线时前端降级）；status 新增 `on_recovery` / `last_payload_kind` / `failed_count` |
 | W12 流式问答 | `POST /api/chat/stream`（SSE：meta/status/tool/token/action/done/error；失败回退 `POST /api/chat`） |
 | W12 RAG 引用 | `trace.retrieval.hits[{id,title,source,score}]` + 回答文本 `[K1]/[K2]` 标记 |
 | W15 trace 查询 | `GET /api/traces?conversation_id=&limit=`、`GET /api/traces/{trace_id}`（Agent :8100） |
@@ -481,19 +515,31 @@ Agent action 卡片（危险红色 + 取消 + 确认执行结果）、历史会�
 
 | 用例 | 结果 | 关键数据 |
 |---|---|---|
-| `npm run build` | PASS | 28 modules，gzip JS 197.5 kB / CSS 9.2 kB |
+| `npm run build` | PASS | 29 modules，gzip JS 201.5 kB / CSS 10.0 kB |
 | `npm run verify:devices` | PASS | 5 设备 + 6 主机与后端一致（NC 在线 12 标记；本次 NC 离线 11 标记，脚本按实时数据校验） |
 | `npm run smoke`（live） | PASS | 首帧 ~0.7s；45 渲染对象；真实后端 `/api/scene` v3（4 栋/12 设备）配置驱动校验通过；W3/W7.1 断言通过（当前 NC 离线/采集陈旧，页面正确显示「后端采集陈旧」tooltip，断言兼容陈旧态）；AI 真实回答（Agent 流式接口未上线 → **W12 自动回退普通模式**，trace plan[] 正常）；live action 卡片（场景新增设备取消、危险链路仅取消，`/api/scene` v3 / pending=0 未变、无清空审计）；W10：通知状态与后端一致、NC 离线时 `/api/path-trace` 返回中文错误且前端正确降级（无 3D 残留/运行时错误）、根因分组空态正常；**W15：Agent 指标/trace/RAG 接口均未上线（404）→ 页签显示「可观测性服务未就绪」、指标卡「—」、trace 空、RAG 隐藏，无运行时错误** |
 | `npm run smoke`（demo） | PASS | 12 标记、2 个告警脉冲、演示水印/离线提示正确 |
 | `npm run smoke`（ai-offline） | PASS | 降级提示正确、AI 控件禁用、3D 场景 5+6 标记与后端一致 |
-| `npm run smoke:w9` | PASS | 动态 5 栋楼 + pending 设备、自动发现高亮、确认/撤销、告警删除→撤销→恢复、静默、清空已恢复、2 个 action 卡片、历史会话加载/删除/清空；**W10**：路径 4 跳完整 + 3 跳断点（红 ✕）+ 清除、根因分组（链路中断/成员 3/被抑制 2/suppressed_by 灰显 + 操作保留）、通知已启用 + 测试发送；**W12**：流式状态条/3 个工具 chip/49 个 token chunk（290 字，与 done.answer 完全一致）/61 个 SSE 事件顺序正确、完成后 action+trace 不变、3 条 RAG 引用（6 个角标/点击高亮）、停止生成（94 字部分内容 + 「已停止生成」且无 done）、SSE 404 回退普通模式并提示；**W15**：指标卡（546 ms / 12.5 % / 26.6 k）、20 条 trace 与红色失败标识、展开 3 条事件、仅当前会话过滤、RAG 4 指标（recall@5 86% / MRR 0.74 / 引用准确率 91% / faithfulness 88%）、三接口 404 降级与恢复，全部通过 |
+| `npm run smoke:w9` | PASS | 动态 5 栋楼 + pending 设备、自动发现高亮、确认/撤销、告警删除→撤销→恢复、静默、清空已恢复、2 个 action 卡片、历史会话加载/删除/清空；**W10**：路径 4 跳完整 + 3 跳断点（红 ✕）+ 清除、根因分组（链路中断/成员 3/被抑制 2/suppressed_by 灰显 + 操作保留）、通知已启用 + 测试发送；**W12**：流式状态条/3 个工具 chip/49 个 token chunk（290 字，与 done.answer 完全一致）/61 个 SSE 事件顺序正确、完成后 action+trace 不变、3 条 RAG 引用（6 个角标/点击高亮）、停止生成（94 字部分内容 + 「已停止生成」且无 done）、SSE 404 回退普通模式并提示；**W15**：指标卡（546 ms / 12.5 % / 26.6 k）、20 条 trace 与红色失败标识、展开 3 条事件、仅当前会话过滤、RAG 4 指标（recall@5 86% / MRR 0.74 / 引用准确率 91% / faithfulness 88%）、三接口 404 降级与恢复；**W16**：齿轮入口打开「飞书通知设置」→ 8 项状态回填（启用/最近发送/错误/成功失败/负载/恢复通知/脱敏 Webhook）→ 表单（URL password/类型/等级/恢复/启用）→ 保存并测试（mock 后端写入 feishu/warning/on_recovery，status 脱敏，页面 DOM 无明文 URL，顶部 stat 刷新「飞书 · 已发送 N 次 · 恢复通知」）→ 仅测试 sent_count 递增 → 取消关闭 → 配置接口 404 降级警告且无运行时错误，全部通过 |
 | 真实后端 UI 删除+撤销 | PASS | 通过页面删除 1 条已恢复告警并撤销：`/api/audit` 记录 `alert.delete` / `alert.restore`（operator=web-ui） |
 | 真实 W10 联调 | PASS | 网络正常时 `/api/path-trace` 返回完整 3 跳并渲染 3D 发光路径；本次 NC 离线时返回中文错误（「NC 退避中…」），前端正确降级不残留路径；`/api/notify/status` 正常；`/api/alerts/groups` 空态正常 |
 | 真实 W12 回退 | PASS | 真实 Agent `/api/chat/stream` 尚未上线（404）→ 自动回退 `/api/chat`，页面显示「⚠ 流式接口不可用…已自动切换普通模式」，回答/trace 正常，无运行时错误 |
 | 真实 W15 降级 | PASS | Agent `/api/metrics/agent`、`/api/traces`、`/api/rag/report` 均未上线（404）→ 可观测性页签显示降级提示、指标卡「—」、trace 空、RAG 卡隐藏，无运行时错误；接口上线后前端自动展示（smoke live 已就绪分支）。测试中修正了 smoke 对「NC 离线/采集陈旧」与「路径追踪返回 ok:false」两种真实环境变化的兼容断言 |
+| 真实 W16 联调（只读部分） | PASS | 5173 真实后端：齿轮打开「飞书通知设置」，`GET /api/notify/status` 回填 8 项状态（启 Enabled/通用 Webhook/critical/最近发送/成功失败/脱敏 URL），URL password 空值 + 脱敏占位（真实状态返回明文时页面 DOM 也不出现明文）、飞书接入帮助完整、Esc 关闭、无运行时/JS 错误。**保存配置等待 task-33**（当前 `/api/notify/config` 仍 404，前端已实现降级提示）；NOTE：早期探测时对真实 `/api/notify/test` 调用过一次（sent_count +1，未改配置） |
+| 真实 W16 live 联调（后端就绪后） | PASS | 真实 8000 + 5173：回填 feishu/critical/on_recovery/masked URL/最近发送/sent_count；【仅测试】发送真实飞书测试卡 sent 4→5；【保存并测试】URL 留空（不修改）→ config 200、`notify_config.json` 持久化字段保持、测试发送 sent 5→6、HUD「飞书 · 已发送 6 次 · 恢复通知」；无 404/未就绪、DOM 无明文 URL、console 无泄漏、无 JS 错误；截图 `notify-settings-live.png` |
 
 > 当前后端真实数据恰好带 1 条 `stale_source=true` 的 PC-JX1 issue（NC 记录滞后、数据源已恢复），
 > 冒烟以此做真实数据断言；若后端无 stale issue，该组断言会输出 `[INFO]` 跳过，不影响其余检查。
+
+> **W16 live 已验证（2026-11-03，task-33 后端已上线）**：
+> - 5173 真实 8000：齿轮打开对话框回填 `type=feishu / min_severity=critical / on_recovery=开启 /
+>   masked URL / 最近发送时间 / 成功/失败=sent_count`；
+> - 【仅测试】真实发送飞书测试卡（sent_count 4→5，`last_payload_kind=test`，HUD 同步刷新）；
+> - 【保存并测试】URL 留空=不修改 → `POST /api/notify/config` 200，`backend/data/notify_config.json`
+>   持久化字段保持 feishu/critical/on_recovery=true、URL 未变，随后测试发送（sent_count 5→6）；
+> - 配置接口就绪后 **404 降级未再出现**；页面 DOM 无明文 URL、console 无 URL 泄漏、无 JS/运行时错误；
+>   `GET /api/notify/status` 目前仍返回明文 `webhook_url`（与前端本地脱敏配合），建议后端按契约做 masked。
+> - 截图：`docs/notify-settings-live.png`（live 保存并测试成功）；`notify-settings.png` 为 mock 契约截图。
 
 ### 4. 截图说明
 
@@ -534,6 +580,13 @@ Agent action 卡片（危险红色 + 取消 + 确认执行结果）、历史会�
   最近 trace 列表（时间/事件/工具/耗时/成功失败标识）+ 第一条 trace 展开事件序列（tool_call 42ms /
   model_response 63ms / final_answer 31ms）+ RAG 评测卡（recall@5 86% / MRR 0.74 / 引用准确率 91% /
   faithfulness 88%）。
+- `docs/ai-panel-expanded.png`：W16 AI 对话框放大态（1080×717 浮层、消息 13px/行高 1.65、
+  输入区加高，右上角按钮变为「⛶ 还原」；含历史会话引用内容）。
+- `docs/notify-settings.png`：W16 飞书通知设置对话框：状态区（启用/飞书/最近发送/成功失败/负载/恢复通知/
+  脱敏 Webhook）+ 表单（URL password 脱敏占位、飞书类型、warning、恢复通知/启用勾选）+「保存并测试」
+  成功提示 + 取消/仅测试按钮 + 飞书群机器人获取步骤帮助。
+- `docs/notify-settings-live.png`：W16 **真实后端 live** 保存并测试成功（feishu / critical / 恢复通知开启 /
+  脱敏 Webhook / 成功 6 次 / 最近负载测试消息 / HUD 同步）。
 - `docs/screenshot-demo.png`：后端离线 + 演示数据模式（水印、离线提示、活跃/已恢复告警、脉冲光环）。
 
 > 截图为 headless Edge 在 1600×900 窗口下的实际渲染结果（页面视口约 1570×805，无人工修图）。
@@ -564,6 +617,7 @@ Agent action 卡片（危险红色 + 取消 + 确认执行结果）、历史会�
 | AI 页签显示「AI 服务未连接」 | agent 服务未启动或 `VITE_AGENT_BASE` 不对。检查 `http://127.0.0.1:8100/api/health`。 |
 | AI 提问报 503 / provider 未就绪 | agent 服务已启动但未配置 `LLM_API_KEY`。配置 key，或 `LLM_PROVIDER=mock` 离线演示。 |
 | AI 回答很慢 / 超时 | 真实 DeepSeek 单次 20~40s 属正常，前端超时 120s；超过 120s 提示超时，可重试。 |
+| AI 面板放大后刷新没恢复 | 放大状态存 `localStorage('campus-ai-expanded')`；隐私模式/禁用 localStorage 时不记忆，可手动再点「⛶ 放大」或按 Esc 退出。 |
 | 页面可打开但 3D 区域空白 | 浏览器未启用 WebGL；页面会在顶部显示运行时错误。换用 Edge/Chrome 并确认硬件加速。 |
 | 端口被占用 | Vite dev 会自动换端口；如需固定端口先释放 5173/4173，或加 `--port` 指定。 |
 | WebSocket 连不上但页面仍有数据 | 前端会降级为 REST 轮询（5s），状态栏显示 `HTTP` 而非 `WS`；不影响数据正确性。 |
@@ -581,6 +635,8 @@ Agent action 卡片（危险红色 + 取消 + 确认执行结果）、历史会�
 | 流式回答中途点「停止生成」 | 使用 AbortController 中断 SSE，保留已生成内容并标注「已停止生成」；不会回退重发请求。 |
 | 回答没有「参考知识」区 | 本次回答未命中 RAG 知识库（`trace.retrieval.hits` 为空）；命中时 `[K1]/[K2]` 会变为可点击角标。 |
 | 可观测性页签显示「服务未就绪」/指标卡「—」 | Agent 的 `/api/metrics/agent`、`/api/traces`、`/api/rag/report` 尚未上线（404）；仅该页签降级，其它功能正常，接口上线后点「刷新」即可。 |
+| 通知设置里保存提示「通知配置接口未就绪」 | 后端 `POST /api/notify/config`（task-33）未上线；当前可查看状态/仅测试，接口上线后保存即生效。 |
+| 通知设置里看不到完整 Webhook | 按安全设计只显示脱敏占位（`origin/路径/****末4位`），输入框留空表示保持当前地址；URL 不回显、不打印控制台。 |
 | 可观测性 trace 列表为空 | `GET /api/traces` 无记录；勾选「仅当前会话」时若还没有 AI 会话会提示无法过滤；取消勾选可看全部。 |
 | RAG 评测卡不显示 | `/api/rag/report` 未就绪/404 时按设计隐藏；该卡只在有评测报告时展示。 |
 | 后端采集状态显示「陈旧」/路径追踪报 NC 错误 | NC（PT）离线或 Real World Access 关闭；后端会退避重试，恢复后告警/路径自动正常，前端已正确降级提示。 |

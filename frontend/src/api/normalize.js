@@ -303,11 +303,18 @@ export function normalizeNotifyStatus(raw) {
   return {
     available: true,
     enabled: Boolean(pick(raw, 'enabled')),
+    configured: Boolean(pick(raw, 'configured')),
     type: str(pick(raw, 'type', 'webhook_type', 'webhookType')) || null,
     minSeverity: str(pick(raw, 'min_severity', 'minSeverity')) || null,
     lastSentAt: parseTimestamp(pick(raw, 'last_sent_at', 'lastSentAt')),
     lastError: repairText(str(pick(raw, 'last_error', 'lastError'))),
     sentCount: num(pick(raw, 'sent_count', 'sentCount')) ?? 0,
+    failedCount: num(pick(raw, 'failed_count', 'failedCount')) ?? 0,
+    pending: num(pick(raw, 'pending')) ?? 0,
+    // W16：task-33 新增字段（后端未上线时缺省 false/空）
+    onRecovery: Boolean(pick(raw, 'on_recovery', 'onRecovery')),
+    lastPayloadKind: str(pick(raw, 'last_payload_kind', 'lastPayloadKind')) || null,
+    // 后端契约要求 masked；若拿到明文，仅存内存供设置对话框做本地脱敏展示，不写日志
     webhookUrl: str(pick(raw, 'url', 'webhook_url', 'webhookUrl')),
   };
 }

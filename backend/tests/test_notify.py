@@ -243,8 +243,10 @@ class TestNotifyService:
                 run_async(scenario())
                 payload = server.requests[0]
                 if webhook_type == "feishu":
-                    assert payload["msg_type"] == "text"
-                    assert "校园网告警" in payload["content"]["text"]
+                    # W15：飞书从纯文本升级为 interactive 富卡片（结构详见 test_notify_feishu.py）
+                    assert payload["msg_type"] == "interactive"
+                    assert payload["card"]["header"]["title"]["content"].startswith("【告警】")
+                    assert "测试告警" in payload["card"]["header"]["title"]["content"]
                 else:
                     assert payload["msgtype"] == "markdown"
                     assert "测试告警" in json.dumps(payload, ensure_ascii=False)
@@ -285,7 +287,8 @@ class TestNotifyService:
 
 
 class TestNotifyApi:
-    def test_status_and_test_endpoints(self, tmp_path):
+    def test_status_and_test_endpoints(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("NOTIFY_CONFIG_PATH", str(tmp_path / "notify_config.json"))
         with receiver() as server:
             app = create_app(make_settings(server.url, tmp_path))
             with TestClient(app) as client:
@@ -299,7 +302,8 @@ class TestNotifyApi:
                 assert result["status"]["sent_count"] >= 1
                 assert len(server.requests) == 1
 
-    def test_disabled_status_and_test(self, tmp_path):
+    def test_disabled_status_and_test(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("NOTIFY_CONFIG_PATH", str(tmp_path / "notify_config.json"))
         app = create_app(make_settings("", tmp_path, notify_enabled=False))
         with TestClient(app) as client:
             status = client.get("/api/notify/status").json()

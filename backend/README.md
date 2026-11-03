@@ -242,15 +242,17 @@ PT 仿真设备时钟与宿主机实测相差约 10 分钟（NC `issueTimestamp=
 | GET | `/api/scene` | **W9 场景配置**：`{version, theme, buildings:[{id,name,position,size,style,devices:[{name,type,position,status,source,...}]}]}` |
 | GET | `/api/scene/pending` | **W9 待确认新设备**：inventory 中未纳入 scene 的设备 + 归属推断 |
 | POST | `/api/scene/buildings` | **W9 新增楼栋**（默认 `status=pending`） |
-| POST | `/api/scene/buildings/{id}/devices` | **W9 设备 upsert**（同楼坐标冲突自动偏移并提示） |
+| POST | `/api/scene/buildings/{id}/devices` | **W9 设备 upsert**（同楼坐标冲突自动偏移；类型-名称前缀不一致自动纠正，响应 `name_corrected` / `original_name`） |
 | POST | `/api/scene/devices/{name}/confirm` | **W9 确认 pending 设备**（→ confirmed） |
+| PATCH | `/api/scene/devices/{name}` | **W13.1 重命名场景设备**：`{"new_name":"PC-JX3"}`；校验非空/重名/类型前缀，冲突 409，审计 + version++ |
 | DELETE | `/api/scene/devices/{name}` | **W9 删除场景设备**（版本化 tombstone + 审计） |
 | POST | `/api/scene/reset` | **W9 重置默认 4 楼栋 / 12 设备** |
 | POST | `/api/path-trace` | **W10.1 路径追踪**：`{source_ip,dest_ip}` → `{ok,trace_status,hops[],links[],synthetic_hop_count,elapsed_ms,error}`（NC flow-analysis + 拓扑补全，2 分钟缓存） |
 | GET | `/api/alerts/groups?state=active` | **W10 告警根因分组**：`{count,groups:[{group_id,root_cause,root_device_*,severity,title,member_count,suppressed_count,members[]}]}` |
 | POST | `/api/alerts/groups/{group_id}/ack` | **W10 整组确认**（写 audit） |
-| GET | `/api/notify/status` | **W10 Webhook 通知状态**（enabled/type/min_severity/sent_count/last_error…） |
-| POST | `/api/notify/test` | **W10 发送测试通知**（返回 `{ok,sent,error,status}`） |
+| GET | `/api/notify/status` | **W15 Webhook 通知状态**（enabled/type/min_severity/on_recovery/link_url/card_type/config_source…） |
+| POST | `/api/notify/config` | **W15 运行时通知配置**：`{enabled?,webhook_url?,webhook_type?,min_severity?,on_recovery?,link_url?}` → 运行时生效 + 持久化 `data/notify_config.json` |
+| POST | `/api/notify/test` | **W10/W15 发送测试通知**：可选 `{"kind":"test"\|\"recovery\"}`；返回 `{ok,sent,kind,error,status}` |
 | WS | `/ws` | 实时快照 + 增量告警 + 恢复摘要 |
 
 ## W9 数据管理 + 场景配置 + 新设备检测（2026-10-30）
@@ -299,6 +301,15 @@ curl.exe "http://127.0.0.1:8000/api/audit?limit=20"
     响应 `{"adjusted": true, "message": "坐标与已有设备冲突，已自动偏移..."}`；
   - `DELETE` 为版本化软删除（设备从 buildings 移除 + `removed_devices` tombstone）；
   - `POST /api/scene/reset` 恢复默认 4 楼栋/12 设备。
+- **W13.1 设备命名规则**（新增设备自动校验；历史设备名保留，用 PATCH 修复）：
+  类型→前缀 `pc→PC-`、`switch→SW-`、`ap→AP-`、`server→SRV-`、`router→RTR-`、
+  `controller→NC/NC-`；楼栋缩写 `core→CORE`、`teach→JX`、`train→SX`、`dorm→SS`
+  （新楼栋可自动推导）。类型-名称不一致时自动纠正为同楼同类型最大编号 +1
+  （如 `type=pc` 的 `SW-JX-2961` → `PC-JX3`），响应/审计记录 `name_corrected`、
+  `original_name`；空名 409、非法字符/超长 422；旧名写入 `device_aliases` 防止
+  inventory 旧 hostname 反复进入 pending。
+- `PATCH /api/scene/devices/{name}` 重命名：新名必须与类型前缀一致、不重名；
+  成功 version++ 并写 `scene.device.rename` 审计，返回更新后的 scene 与设备。
 
 ```jsonc
 // GET /api/scene（节选）
@@ -334,7 +345,7 @@ curl.exe "http://127.0.0.1:8000/api/audit?limit=20"
 `audit_log(operator, action, target, detail, result, created_at)`；action 示例：
 `alert.delete` / `alert.clear` / `alert.silence` / `alert.restore` /
 `scene.building.add` / `scene.device.upsert` / `scene.device.confirm` /
-`scene.device.delete` / `scene.reset`。被拒绝的写操作（如删除 active 告警）也会记录
+`scene.device.rename` / `scene.device.delete` / `scene.reset`。被拒绝的写操作（如删除 active 告警）也会记录
 `result=rejected`，便于审计追踪。
 
 ## W10 路径追踪 + 告警根因分组 + Webhook + SNMP（2026-10-30）
@@ -428,7 +439,10 @@ curl.exe -X POST http://127.0.0.1:8000/api/alerts/groups/g_xxx/ack -H "X-Operato
   `{title,severity,device,time,detail,alert_id}`；`dingtalk/wecom` 为 markdown，
   `feishu` 为 text，均带告警标题/级别/设备/时间/详情；
 - `GET /api/notify/status` 暴露 enabled/type/min_severity/webhook_url(脱敏)/
-  last_sent_at/last_error/sent_count/failed_count/pending；`POST /api/notify/test`
+  on_recovery/link_url/card_type/config_source/last_sent_at/last_error/sent_count；
+  `POST /api/notify/config` 运行时切换通知配置并持久化到 `data/notify_config.json`
+  （启动时自动加载覆盖 env；文件已 gitignore、权限尽量 600、响应只返回 masked URL）；
+  `POST /api/notify/test` 支持 `kind=test|recovery`，可发普通/恢复测试卡片。
   立即发送测试消息。
 
 ```powershell

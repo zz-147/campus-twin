@@ -185,6 +185,41 @@ class ActionStore:
             rows = connection.execute(query, args).fetchall()
         return [_row_to_dict(row) for row in rows]
 
+    def recent_actions(
+        self,
+        action_type: Optional[str] = None,
+        conversation_id: Optional[str] = None,
+        status: Optional[str] = None,
+        limit: int = 20,
+    ) -> List[Dict[str, Any]]:
+        """按创建时间倒序查询动作记录（W15：删除“刚加的设备”时解析目标用）。"""
+        query = "SELECT * FROM actions WHERE 1=1"
+        args: List[Any] = []
+        if action_type:
+            query += " AND action_type=?"
+            args.append(str(action_type))
+        if conversation_id:
+            query += " AND conversation_id=?"
+            args.append(str(conversation_id))
+        if status:
+            query += " AND status=?"
+            args.append(str(status))
+        query += " ORDER BY created_at DESC LIMIT ?"
+        args.append(max(1, min(100, int(limit))))
+        with self._connect() as connection:
+            rows = connection.execute(query, tuple(args)).fetchall()
+        return [_row_to_dict(row) for row in rows]
+
+    def latest_action(
+        self,
+        action_type: Optional[str] = None,
+        conversation_id: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        actions = self.recent_actions(
+            action_type=action_type, conversation_id=conversation_id, limit=1
+        )
+        return actions[0] if actions else None
+
     def count(self, status: Optional[str] = None) -> int:
         with self._connect() as connection:
             if status:

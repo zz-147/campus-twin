@@ -12,7 +12,14 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 
 from app.agent.inference import find_building
-from app.agent.knowledge import DEVICE_SPECS, detect_device_kind, scene_type_label
+from app.agent.knowledge import (
+    DEVICE_SPECS,
+    detect_device_kind,
+    device_name_prefix,
+    device_type_key,
+    next_device_hostname,
+    scene_type_label,
+)
 from app.agent.roles.base import ActionDraft, BaseRole, RoleContext, RoleResult
 from app.agent.roles.scene import SceneRole, scene_type_for_device_kind
 
@@ -119,12 +126,28 @@ class ReconRole(BaseRole):
             else:
                 kind = detect_device_kind(str(item.get("type") or "")) or "2960"
                 scene_type = scene_type_for_device_kind(kind)
+                placement_name = name
+                if not _name_matches_type(name, kind):
+                    existing_names = [
+                        str(device.get("name") or "")
+                        for building in (scene.get("buildings") or [])
+                        for device in (building.get("devices") or [])
+                        if isinstance(device, dict)
+                    ]
+                    placement_name = next_device_hostname(
+                        kind, building_name, [item for item in existing_names if item]
+                    )
                 placement = scene_role.propose_device(
-                    scene, scene_building, name, scene_type, device_kind=kind
+                    scene, scene_building, placement_name, scene_type, device_kind=kind
                 )
                 building_id = str(
                     (scene_building or {}).get("id") or inference.get("building_id") or ""
                 )
+                if placement_name != name:
+                    lines.append(
+                        "- 命名校正：%s 的类型为 %s，场景名按规则改为 **%s**。"
+                        % (name, scene_type_label(scene_type), placement_name)
+                    )
                 actions.append(
                     ActionDraft(
                         type="apply_scene_device",
@@ -135,12 +158,12 @@ class ReconRole(BaseRole):
                         },
                         confirm_text=(
                             "将把新设备 %s 加入「%s」场景（pending 状态，可再确认/撤销），确认执行？"
-                            % (name, building_name)
+                            % (placement_name, building_name)
                         ),
                         danger=False,
                     )
                 )
-                placements.append({"device": name, "action": "apply_scene_device"})
+                placements.append({"device": placement_name, "action": "apply_scene_device"})
 
         lines.append("")
         lines.append("## 推断说明")
@@ -183,3 +206,25 @@ class ReconRole(BaseRole):
             "needs_user": questions,
         }
         return self._finish(ctx, started, "\n".join(lines), actions=actions, data=result_data)
+
+
+def _name_matches_type(name: str, kind: str) -> bool:
+    """W15：设备名前缀是否与设备类型一致（pc 不能叫 SW-*）。"""
+    type_key = device_type_key(kind)
+    prefix = device_name_prefix(type_key).rstrip("-").upper()
+    upper = str(name or "").upper()
+    if not upper:
+        return False
+    if type_key == "pc":
+        return upper.startswith("PC-") or upper.startswith("PC")
+    if type_key == "switch":
+        return upper.startswith("SW-") or upper.startswith("CORE-")
+    if type_key == "router":
+        return upper.startswith("RTR-") or upper.startswith("ROUTER-")
+    if type_key == "server":
+        return upper.startswith("SRV-") or upper.startswith("SERVER-")
+    if type_key == "ap":
+        return upper.startswith("AP-") or upper.startswith("AP")
+    if type_key == "controller":
+        return upper == "NC" or upper.startswith("NC")
+    return upper.startswith(prefix)

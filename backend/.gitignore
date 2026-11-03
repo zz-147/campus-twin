@@ -3,3 +3,6 @@ __pycache__/
 .pytest_cache/
 pytest-of-*/
 data/
+
+# 运行时通知配置（含 webhook token，绝不入库）
+data/notify_config.json

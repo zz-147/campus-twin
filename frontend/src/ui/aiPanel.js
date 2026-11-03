@@ -40,6 +40,9 @@ function formatDuration(seconds) {
   return `${Math.floor(seconds / 60)} 分 ${Math.round(seconds % 60)} 秒`;
 }
 
+/** W16：AI 对话框放大状态持久化 key（localStorage） */
+const EXPAND_STORAGE_KEY = 'campus-ai-expanded';
+
 export class AiPanel {
   constructor(
     root = document,
@@ -58,6 +61,13 @@ export class AiPanel {
     this._conversations = [];
     this._historyLoaded = false;
     this._historyAvailable = null;
+    // W16：AI 对话框放大/全屏（Esc 还原 + localStorage 记忆）
+    this._expanded = false;
+    this._onExpandedKeyDown = (event) => {
+      if (event.key !== 'Escape' || !this._expanded) return;
+      event.preventDefault();
+      this.setExpanded(false);
+    };
 
     const byId = (id) => root.getElementById(id);
     this.el = {
@@ -66,6 +76,8 @@ export class AiPanel {
       statusRetry: byId('ai-retry'),
       modelLine: byId('ai-model-line'),
       newChat: byId('ai-new'),
+      expandButton: byId('ai-expand'),
+      rightDock: byId('right-dock'),
       historyButton: byId('ai-history'),
       historyPanel: byId('ai-history-panel'),
       historyList: byId('ai-history-list'),
@@ -82,6 +94,7 @@ export class AiPanel {
     this._renderWelcome();
     this._renderQuickQuestions();
     this._bindEvents();
+    this._initExpandedState();
     this._refreshStatus();
     // 周期性探测 agent 状态（启动/关闭都能及时反映到面板）
     this._statusTimer = setInterval(() => this._refreshStatus(), 20000);
@@ -133,6 +146,10 @@ export class AiPanel {
     this.el.newChat?.addEventListener('click', () => this.resetChat());
     this.el.statusRetry?.addEventListener('click', () => this._refreshStatus());
 
+    // W16：放大/还原 AI 对话框（按钮 / Esc / localStorage 记忆）
+    this.el.expandButton?.addEventListener('click', () => this.setExpanded(!this._expanded));
+    document.addEventListener('keydown', this._onExpandedKeyDown);
+
     // W9：历史会话入口
     this.el.historyButton?.addEventListener('click', () => this._toggleHistory());
     this.el.historyClose?.addEventListener('click', () => this._toggleHistory(false));
@@ -164,6 +181,54 @@ export class AiPanel {
       if (button.dataset.actionRole === 'confirm') this._runAction(actionId, 'confirm');
       else this._runAction(actionId, 'cancel');
     });
+  }
+
+  // ------------------------------------------------------------------ //
+  // W16：AI 对话框放大/全屏（按钮切换 + Esc 还原 + localStorage 记忆）
+  // ------------------------------------------------------------------ //
+  _initExpandedState() {
+    let stored = false;
+    try {
+      stored = window.localStorage?.getItem(EXPAND_STORAGE_KEY) === '1';
+    } catch {
+      /* 隐私模式/禁用 localStorage 时忽略，默认不放大 */
+    }
+    this.setExpanded(stored, { persist: false });
+  }
+
+  /**
+   * @param {boolean} expanded
+   * @param {object} options
+   * @param {boolean} options.persist 是否写入 localStorage（恢复页面状态时传 false）
+   */
+  setExpanded(expanded, { persist = true } = {}) {
+    const next = Boolean(expanded);
+    this._expanded = next;
+    this.el.rightDock?.classList.toggle('ai-expanded', next);
+    if (this.el.expandButton) {
+      this.el.expandButton.textContent = next ? '⛶ 还原' : '⛶ 放大';
+      this.el.expandButton.setAttribute('aria-pressed', String(next));
+      this.el.expandButton.classList.toggle('active', next);
+      this.el.expandButton.title = next
+        ? '还原对话框（Esc 退出）'
+        : '放大对话框（Esc 退出）';
+    }
+    if (persist) {
+      try {
+        window.localStorage?.setItem(EXPAND_STORAGE_KEY, next ? '1' : '0');
+      } catch {
+        /* localStorage 不可用时不阻塞交互 */
+      }
+    }
+    if (next) {
+      // 刷新后保持放大态时，自动切到 AI 页签，确保用户看到放大的对话框
+      this.root.getElementById('tab-ai')?.click();
+      setTimeout(() => this.el.input?.focus?.(), 80);
+    }
+  }
+
+  get isExpanded() {
+    return Boolean(this._expanded);
   }
 
   // ------------------------------------------------------------------ //
@@ -690,6 +755,7 @@ export class AiPanel {
   dispose() {
     clearInterval(this._statusTimer);
     clearInterval(this._ticker);
+    document.removeEventListener('keydown', this._onExpandedKeyDown);
     this.agent.cancel();
     this.agent.cancelStream();
   }

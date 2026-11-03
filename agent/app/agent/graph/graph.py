@@ -215,6 +215,7 @@ class LangGraphEngine:
                 conversation_id=conversation_id,
                 history=history,
                 route=route,
+                actions=self._actions,
             )
             try:
                 result = self._run_role(role, question, history, ctx)

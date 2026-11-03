@@ -62,6 +62,16 @@ class DeviceUpsert(BaseModel):
     mgmt_ip: Optional[str] = Field(default=None, max_length=64)
 
 
+class SceneDeviceRenameRequest(BaseModel):
+    """PATCH /api/scene/devices/{name} 请求体。"""
+
+    new_name: str = Field(
+        min_length=1,
+        max_length=64,
+        description="新设备名；必须与设备类型前缀一致（pc→PC-、switch→SW- 等）",
+    )
+
+
 class PathTraceRequest(BaseModel):
     """POST /api/path-trace 请求体。"""
 

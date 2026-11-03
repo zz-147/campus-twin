@@ -21,6 +21,7 @@
 - ``GET  /api/alerts/groups``         W10 告警根因分组 + 下游抑制（展示层）
 - ``POST /api/alerts/groups/{id}/ack`` 整组确认（审计）
 - ``GET  /api/notify/status`` / ``POST /api/notify/test``  W10 Webhook 通知状态/测试
+- ``POST /api/notify/config``          W15 通知运行时配置（持久化 data/notify_config.json）
 - ``GET  /api/scene`` / ``/api/scene/pending``  场景配置（4 楼栋/12 设备，配置驱动）
 - ``POST /api/scene/buildings`` 等    场景写操作（X-Operator + 审计 + version++）
 - ``POST /api/debug/simulator/*``    仿真故障注入（仅仿真模式，用于演示/联调）
@@ -31,19 +32,24 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+import os
 import time
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
+from urllib.parse import urlparse
 
-from fastapi import FastAPI, Header, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi import Body, FastAPI, Header, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field
 
 from app import __version__
 from app.alert_groups import build_alert_groups
 from app.collectors.simulator import SimulatorDriver
-from app.config import Settings
-from app.notify import NotifyService
+from app.config import BACKEND_DIR, Settings
+from app.notify import NotifyConfigError, NotifyService
 from app.path_trace import PathTraceService
 from app.pipeline import CollectorPipeline, build_drivers, iso_time
 from app.schemas import (
@@ -51,6 +57,7 @@ from app.schemas import (
     BuildingCreate,
     DeviceUpsert,
     PathTraceRequest,
+    SceneDeviceRenameRequest,
 )
 from app.scene import SceneError, SceneService
 from app.store import Store
@@ -131,6 +138,197 @@ class ConnectionManager:
 
 
 # --------------------------------------------------------------------------- #
+# W15：飞书通知运行时配置（持久化 + 启动加载）
+# --------------------------------------------------------------------------- #
+#: 覆盖默认配置文件路径（测试用临时目录；生产默认 backend/data/notify_config.json）
+NOTIFY_CONFIG_PATH_ENV = "NOTIFY_CONFIG_PATH"
+DEFAULT_NOTIFY_CONFIG_PATH = BACKEND_DIR / "data" / "notify_config.json"
+NOTIFY_CONFIG_TYPES = ("generic", "dingtalk", "feishu", "wecom")
+NOTIFY_CONFIG_SEVERITIES = ("critical", "warning")
+NOTIFY_CONFIG_MAX_URL_LENGTH = 2048
+
+
+class NotifyConfigRequest(BaseModel):
+    """POST /api/notify/config 请求体（所有字段可选，只提交需要修改的项）。"""
+
+    enabled: Optional[bool] = Field(default=None, description="是否启用通知")
+    webhook_url: Optional[str] = Field(
+        default=None, max_length=NOTIFY_CONFIG_MAX_URL_LENGTH, description="Webhook 地址（http/https）"
+    )
+    webhook_type: Optional[str] = Field(
+        default=None, description="generic | dingtalk | feishu | wecom"
+    )
+    min_severity: Optional[str] = Field(
+        default=None, description="触发通知的最低级别：critical | warning"
+    )
+    on_recovery: Optional[bool] = Field(
+        default=None, description="告警恢复时是否发送恢复通知"
+    )
+    link_url: Optional[str] = Field(
+        default=None,
+        max_length=NOTIFY_CONFIG_MAX_URL_LENGTH,
+        description="飞书卡片「打开 3D 大屏」按钮链接（http/https；空字符串可清除按钮）",
+    )
+
+
+class NotifyTestRequest(BaseModel):
+    """POST /api/notify/test 可选请求体。"""
+
+    kind: Optional[str] = Field(
+        default=None, description="test（默认）| recovery（恢复通知测试卡）"
+    )
+
+
+def notify_config_path() -> Path:
+    """运行时配置文件路径（测试可用 NOTIFY_CONFIG_PATH 指向 tmp_path）。"""
+    configured = os.environ.get(NOTIFY_CONFIG_PATH_ENV, "").strip()
+    return Path(configured) if configured else DEFAULT_NOTIFY_CONFIG_PATH
+
+
+def _mask_webhook_url(url: str) -> str:
+    """日志/状态只展示前缀，避免 webhook token 泄露。"""
+    text = str(url or "")
+    if not text:
+        return ""
+    return text[:40] + "..." if len(text) > 40 else text
+
+
+def _validate_webhook_url(value: Any, *, allow_empty: bool = False) -> str:
+    url = str(value or "").strip()
+    if not url:
+        if allow_empty:
+            return ""
+        raise ValueError("webhook_url 不能为空（需 http:// 或 https:// 开头）")
+    if len(url) > NOTIFY_CONFIG_MAX_URL_LENGTH:
+        raise ValueError("webhook_url 过长（最多 {} 字符）".format(NOTIFY_CONFIG_MAX_URL_LENGTH))
+    if any(ch in url for ch in (" ", "\n", "\r", "\t")):
+        raise ValueError("webhook_url 不能包含空白字符")
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+        raise ValueError("webhook_url 必须是合法的 http:// 或 https:// 地址")
+    return url
+
+
+def _normalize_notify_config_request(request: NotifyConfigRequest) -> Dict[str, Any]:
+    """校验并转换成 notify.apply_config 的参数；非法时抛 HTTP 400（中文）。"""
+    provided = request.model_dump(exclude_unset=True)
+    changes: Dict[str, Any] = {}
+    if "enabled" in provided and provided["enabled"] is not None:
+        changes["enabled"] = bool(provided["enabled"])
+    if "on_recovery" in provided and provided["on_recovery"] is not None:
+        changes["notify_on_recovery"] = bool(provided["on_recovery"])
+    if "webhook_url" in provided and provided["webhook_url"] is not None:
+        try:
+            changes["webhook_url"] = _validate_webhook_url(provided["webhook_url"])
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if "webhook_type" in provided and provided["webhook_type"] is not None:
+        value = str(provided["webhook_type"]).strip().lower()
+        if value not in NOTIFY_CONFIG_TYPES:
+            raise HTTPException(
+                status_code=400,
+                detail="webhook_type 必须是 {} 之一，收到：{!r}".format(
+                    "|".join(NOTIFY_CONFIG_TYPES), provided["webhook_type"]
+                ),
+            )
+        changes["webhook_type"] = value
+    if "min_severity" in provided and provided["min_severity"] is not None:
+        value = str(provided["min_severity"]).strip().lower()
+        if value not in NOTIFY_CONFIG_SEVERITIES:
+            raise HTTPException(
+                status_code=400,
+                detail="min_severity 必须是 {} 之一，收到：{!r}".format(
+                    "|".join(NOTIFY_CONFIG_SEVERITIES), provided["min_severity"]
+                ),
+            )
+        changes["min_severity"] = value
+    if "link_url" in provided and provided["link_url"] is not None:
+        try:
+            changes["link_url"] = _validate_webhook_url(
+                provided["link_url"], allow_empty=True
+            )
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=400, detail="link_url 非法：{}".format(exc)
+            ) from exc
+    if not changes:
+        raise HTTPException(
+            status_code=400,
+            detail="至少提供一个需要更新的配置项：enabled/webhook_url/webhook_type/min_severity/on_recovery",
+        )
+    return changes
+
+
+def _read_notify_config_file() -> Optional[Dict[str, Any]]:
+    """读取并宽松校验持久化配置；不存在/非法时返回 None（绝不阻塞启动）。"""
+    path = notify_config_path()
+    if not path.is_file():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        logger.warning("通知配置文件读取失败，忽略（%s）：%s", path, exc)
+        return None
+    if not isinstance(data, dict):
+        logger.warning("通知配置文件格式非法（非 JSON 对象），忽略：%s", path)
+        return None
+    applied: Dict[str, Any] = {}
+    if "enabled" in data:
+        applied["enabled"] = bool(data["enabled"])
+    if "on_recovery" in data:
+        applied["on_recovery"] = bool(data["on_recovery"])
+    if "webhook_type" in data:
+        value = str(data["webhook_type"]).strip().lower()
+        if value in NOTIFY_CONFIG_TYPES:
+            applied["webhook_type"] = value
+        else:
+            logger.warning("通知配置文件 webhook_type 非法，忽略该字段：%r", data["webhook_type"])
+    if "min_severity" in data:
+        value = str(data["min_severity"]).strip().lower()
+        if value in NOTIFY_CONFIG_SEVERITIES:
+            applied["min_severity"] = value
+        else:
+            logger.warning("通知配置文件 min_severity 非法，忽略该字段：%r", data["min_severity"])
+    if "webhook_url" in data:
+        try:
+            applied["webhook_url"] = _validate_webhook_url(data["webhook_url"], allow_empty=True)
+        except ValueError as exc:
+            logger.warning("通知配置文件 webhook_url 非法，忽略该字段：%s", exc)
+    if "link_url" in data:
+        try:
+            applied["link_url"] = _validate_webhook_url(data["link_url"], allow_empty=True)
+        except ValueError as exc:
+            logger.warning("通知配置文件 link_url 非法，忽略该字段：%s", exc)
+    return applied or None
+
+
+def _persist_notify_config(notify: NotifyService) -> Path:
+    """把当前生效配置原子写入 JSON（权限尽量 600；失败抛 OSError 由 API 返回 500）。"""
+    payload = {
+        "enabled": bool(getattr(notify, "enabled_requested", False)),
+        "webhook_url": str(getattr(notify, "webhook_url", "") or ""),
+        "webhook_type": str(getattr(notify, "webhook_type", "generic") or "generic"),
+        "min_severity": str(getattr(notify, "min_severity", "critical") or "critical"),
+        "on_recovery": bool(getattr(notify, "notify_on_recovery", True)),
+        "link_url": str(getattr(notify, "link_url", "") or ""),
+        "updated_at": time.time(),
+    }
+    path = notify_config_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp_path = path.with_name(path.name + ".tmp")
+    temp_path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+    try:
+        os.chmod(str(temp_path), 0o600)
+    except OSError:
+        # Windows 上 chmod 语义有限；写权限收敛失败不阻塞配置持久化
+        pass
+    os.replace(str(temp_path), str(path))
+    return path
+
+
+# --------------------------------------------------------------------------- #
 # 应用工厂（测试可传入独立 Settings：临时 DB / 仿真驱动 / 超时）
 # --------------------------------------------------------------------------- #
 def create_app(settings: Optional[Settings] = None) -> FastAPI:
@@ -151,7 +349,35 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
         driver, metrics_driver = await build_drivers(settings)
         # W10：路径追踪服务（NC flow-analysis + 缓存）与 Webhook 通知服务
         app.state.path_trace = PathTraceService(driver, settings)
+        # W15：启动时若存在 data/notify_config.json，用运行时配置覆盖 env（保留 env_defaults）
         notify = NotifyService(settings)
+        persisted_notify_config = _read_notify_config_file()
+        if persisted_notify_config:
+            startup_changes = {
+                "enabled": persisted_notify_config.get("enabled"),
+                "webhook_url": persisted_notify_config.get("webhook_url"),
+                "webhook_type": persisted_notify_config.get("webhook_type"),
+                "min_severity": persisted_notify_config.get("min_severity"),
+                "notify_on_recovery": persisted_notify_config.get("on_recovery"),
+                "link_url": persisted_notify_config.get("link_url"),
+            }
+            startup_changes = {
+                key: value for key, value in startup_changes.items() if value is not None
+            }
+            try:
+                await notify.apply_config(**startup_changes)
+                notify.config_source = "file"
+                logger.info(
+                    "已加载持久化通知配置：enabled=%s type=%s min_severity=%s "
+                    "on_recovery=%s url=%s",
+                    notify.status().get("enabled"),
+                    notify.webhook_type,
+                    notify.min_severity,
+                    notify.notify_on_recovery,
+                    _mask_webhook_url(notify.webhook_url),
+                )
+            except NotifyConfigError as exc:
+                logger.warning("持久化通知配置非法，回退 env 配置：%s", exc)
         app.state.notify = notify
         await notify.start()
         pipeline = CollectorPipeline(
@@ -231,10 +457,12 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
                 "/api/audit",
                 "/api/scene",
                 "/api/scene/pending",
+                "/api/scene/devices/{name}",
                 "/api/path-trace",
                 "/api/alerts/groups",
                 "/api/notify/status",
                 "/api/notify/test",
+                "/api/notify/config",
             ],
         }
 
@@ -662,6 +890,25 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
         except SceneError as exc:
             raise _scene_http_error(exc) from exc
 
+    @app.patch("/api/scene/devices/{name}", tags=["scene"])
+    def rename_scene_device(
+        name: str,
+        request: SceneDeviceRenameRequest,
+        x_operator: str = Header(default="web-ui", alias="X-Operator"),
+    ) -> Dict[str, Any]:
+        """重命名场景设备（校验类型前缀/重名；version++ + 审计）。
+
+        - 新名称必须非空且与设备类型前缀一致（pc→PC-、switch→SW-、server→SRV-、
+          router→RTR-、ap→AP-、controller→NC/NC-）；
+        - 与其它设备重名 → 409；不存在 → 404；非法字符/超长 → 422。
+        """
+        try:
+            return app.state.scene.rename_device(
+                normalize_operator(x_operator), name, request.new_name
+            )
+        except SceneError as exc:
+            raise _scene_http_error(exc) from exc
+
     @app.delete("/api/scene/devices/{name}", tags=["scene"])
     def delete_scene_device(
         name: str,
@@ -803,10 +1050,65 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
         """Webhook 通知配置与发送状态（enabled/type/min_severity/统计）。"""
         return app.state.notify.status()
 
+    @app.post("/api/notify/config", tags=["notify"])
+    async def notify_config(request: NotifyConfigRequest) -> Dict[str, Any]:
+        """运行时更新通知配置（不重启）：校验 → apply_config → 持久化。
+
+        - body 所有字段可选：`enabled` / `webhook_url` / `webhook_type` /
+          `min_severity` / `on_recovery`；
+        - URL 必须 http(s)，type/severity 非法 → 400（中文错误）；
+        - 成功后写 `backend/data/notify_config.json`（gitignore，权限尽量 600），
+          下次启动 lifespan 自动加载；
+        - 响应只返回 masked URL，不泄露 webhook token。
+        """
+        changes = _normalize_notify_config_request(request)
+        try:
+            status = await app.state.notify.apply_config(**changes)
+        except NotifyConfigError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception as exc:  # noqa: BLE001 - 运行时配置失败给出明确中文错误
+            logger.exception("通知运行时配置应用失败")
+            raise HTTPException(
+                status_code=500, detail="通知配置应用失败：{}".format(exc)
+            ) from exc
+        try:
+            config_path = _persist_notify_config(app.state.notify)
+        except OSError as exc:
+            logger.exception("通知配置持久化失败")
+            raise HTTPException(
+                status_code=500,
+                detail="通知配置已运行时生效，但持久化失败：{}".format(exc),
+            ) from exc
+        logger.info(
+            "通知配置 API 更新成功：enabled=%s type=%s min_severity=%s on_recovery=%s url=%s "
+            "persisted=%s",
+            status.get("enabled"),
+            status.get("type"),
+            status.get("min_severity"),
+            status.get("on_recovery"),
+            status.get("webhook_url"),
+            config_path.name,
+        )
+        return {
+            "ok": True,
+            "persisted": True,
+            "config_file": config_path.name,
+            "status": status,
+        }
+
     @app.post("/api/notify/test", tags=["notify"])
-    async def notify_test() -> Dict[str, Any]:
-        """立即发送一条测试 Webhook 消息（用于前端「发送测试通知」按钮）。"""
-        result = await app.state.notify.send_test()
+    async def notify_test(
+        request: Optional[NotifyTestRequest] = Body(default=None),
+    ) -> Dict[str, Any]:
+        """立即发送一条测试 Webhook 消息（可选 kind=test|recovery）。"""
+        kind = "test"
+        if request is not None and request.kind is not None:
+            kind = str(request.kind).strip().lower()
+            if kind not in ("test", "recovery"):
+                raise HTTPException(
+                    status_code=400, detail="kind 只能是 test 或 recovery，收到：{!r}".format(request.kind)
+                )
+        result = await app.state.notify.send_test(kind)
         result["status"] = app.state.notify.status()
         return result
 

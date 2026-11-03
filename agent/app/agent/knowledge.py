@@ -237,6 +237,108 @@ def _short_ascii(name: str, fallback: str) -> str:
 # --------------------------------------------------------------------------- #
 # 地址 / 命名 / 端口规划
 # --------------------------------------------------------------------------- #
+#: 设备类型 → 命名前缀（W15 修复：pc 不能再复用交换机的 SW- 前缀）
+DEVICE_NAME_PREFIX_BY_TYPE: Dict[str, str] = {
+    "pc": "PC",
+    "switch": "SW",
+    "ap": "AP",
+    "server": "SRV",
+    "router": "RTR",
+    "controller": "NC",
+}
+
+_DEVICE_KIND_ALIASES: Dict[str, str] = {
+    "pc": "pc",
+    "电脑": "pc",
+    "终端": "pc",
+    "terminal": "pc",
+    "2960": "switch",
+    "3650": "switch",
+    "switch": "switch",
+    "交换机": "switch",
+    "ap": "ap",
+    "无线ap": "ap",
+    "server": "server",
+    "服务器": "server",
+    "4331": "router",
+    "router": "router",
+    "路由器": "router",
+    "controller": "controller",
+    "nc": "controller",
+    "网络控制器": "controller",
+}
+
+
+def device_type_key(kind: str) -> str:
+    """把型号 key / 中文类型 / 场景 type 归一化为 pc/switch/ap/server/router/controller。"""
+    text = str(kind or "").strip().lower()
+    return _DEVICE_KIND_ALIASES.get(text, "switch")
+
+
+def building_abbr(building_name: Optional[str]) -> str:
+    """楼栋缩写：教学楼→JX，实训楼→SX，宿舍楼→SS，中心机房→CORE，新楼按 hostname_prefix。"""
+    if not building_name:
+        return ""
+    profile = building_profile(str(building_name))
+    prefix = str(profile.get("hostname_prefix") or "")
+    if prefix.upper().startswith("SW-"):
+        return prefix[3:].upper()
+    if prefix.upper() == "CORE":
+        return "CORE"
+    return _short_ascii(str(building_name), "NEW")
+
+
+def device_name_prefix(kind: str, building_name: Optional[str] = None) -> str:
+    """设备类型 → 名称前缀：pc→PC-<楼栋缩写>、switch→SW-<楼栋缩写>、
+    ap→AP-、server→SRV-、router→RTR-、controller→NC。
+    """
+    type_key = device_type_key(kind)
+    base = DEVICE_NAME_PREFIX_BY_TYPE.get(type_key, "SW")
+    if type_key in ("pc", "switch"):
+        abbr = building_abbr(building_name)
+        return "%s-%s" % (base, abbr) if abbr else "%s-" % base
+    return "%s-" % base if base != "NC" else "NC"
+
+
+def next_device_hostname(
+    kind: str,
+    building_name: Optional[str],
+    existing_hostnames: List[str],
+) -> str:
+    """按设备类型生成不与现有名称冲突的 hostname（W15 修复）。
+
+    - pc：沿用 ``PC-JX1 / PC-JX2`` 风格，下一个为 ``PC-JX3``；
+    - switch：沿用 ``SW-JX-2960`` 风格，下一个为 ``SW-JX-2961``；
+    - ap/server/router/controller：AP-1 / SRV-1 / RTR-1 / NC-1（不与已有名冲突）。
+    """
+    names = [str(name).strip() for name in existing_hostnames or [] if str(name).strip()]
+    type_key = device_type_key(kind)
+    prefix = device_name_prefix(type_key, building_name)
+
+    if type_key == "pc":
+        abbr = building_abbr(building_name)
+        pattern = re.compile(r"^PC-%s-?(\d+)$" % re.escape(abbr), re.IGNORECASE) if abbr else None
+        numbers = []
+        if pattern is not None:
+            for name in names:
+                match = pattern.match(name)
+                if match:
+                    numbers.append(int(match.group(1)))
+        next_number = (max(numbers) + 1) if numbers else 1
+        candidate = "PC-%s%d" % (abbr, next_number) if abbr else "PC-%d" % next_number
+        while candidate.lower() in {name.lower() for name in names}:
+            next_number += 1
+            candidate = "PC-%s%d" % (abbr, next_number) if abbr else "PC-%d" % next_number
+        return candidate
+
+    # AP-/SRV-/RTR- 前缀本身带“-”，去掉后再让 next_hostname 生成 "AP-1" 形式
+    normalized_prefix = prefix.rstrip("-")
+    candidate = next_hostname(names, normalized_prefix)
+    while candidate.lower() in {name.lower() for name in names}:
+        candidate = next_hostname(names + [candidate], normalized_prefix)
+    return candidate
+
+
 def next_hostname(existing_hostnames: List[str], prefix: str) -> str:
     """生成下一个可用 hostname：SW-SS-2961 / Core-3651 这类递增规则。"""
     pattern = re.compile(r"^%s-(\d+)$" % re.escape(prefix), re.IGNORECASE)

@@ -6,6 +6,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Sequence
 
+from app.agent.actions import ActionStore
 from app.agent.conversations import ConversationStore
 from app.agent.tools import OpsToolkit
 
@@ -20,6 +21,8 @@ class RoleContext:
     tools_used: List[str] = field(default_factory=list)
     #: W12.1 规则路由结果（rule=确定性短路；llm=回退路由）；供角色做确定性动作 hint
     route: Optional[Dict[str, Any]] = None
+    #: W15：动作存储（删除“刚加的设备”时解析最近一次 apply_scene_device）
+    actions: Optional[ActionStore] = None
 
     def call_tool(
         self, toolkit: OpsToolkit, name: str, arguments: Optional[Dict[str, Any]] = None

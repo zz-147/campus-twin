@@ -160,8 +160,25 @@ export class AdminClient {
     return this._request('/api/notify/status');
   }
 
-  notifyTest() {
-    return this._request('/api/notify/test', { method: 'POST', body: {}, timeoutMs: 20000 });
+  notifyTest(kind = 'test') {
+    // task-33：/api/notify/test 支持 kind=test|recovery（默认 test，避免误发恢复通知）
+    return this._request('/api/notify/test', {
+      method: 'POST',
+      body: { kind },
+      timeoutMs: 20000,
+    });
+  }
+
+  /**
+   * W16/task-33：保存通知配置（Webhook URL / 类型 / 最低等级 / 恢复通知 / 启用）。
+   * URL 只通过请求体传给后端，前端不打印、不回显明文。
+   */
+  notifyConfig(payload, { timeoutMs = 15000 } = {}) {
+    return this._request('/api/notify/config', {
+      method: 'POST',
+      body: payload || {},
+      timeoutMs,
+    });
   }
 
   resetScene() {

@@ -54,6 +54,18 @@ docs/作品集截图.zip
 .idea/
 .vscode/settings.json
 
-# ===== 内部材料 / 简历生成脚本（不公开）=====
-docs/面试官视角审阅*
+# ===== 内部材料 / 简历生成脚本 / 求职过程材料（不公开）=====
+docs/面试官视角*
+docs/FDE*
+docs/提交包/
+docs/temp_reading/
+docs/飞书导入CSV/
+docs/项目讲解视频脚本-10分钟.md
+docs/简历-*.docx
+docs/简历-*.pdf
+fde-demo/
+tools/fde_*.py
 tools/build_resume*.py
+tools/*resume*.py
+pytest-of-*/
+**/pytest-of-*/

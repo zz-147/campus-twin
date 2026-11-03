@@ -2,6 +2,7 @@
 """W9-2 场景配置 API + 新设备检测测试（完全离线）。"""
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -225,6 +226,228 @@ class TestSceneMutations:
                 "/api/scene/buildings/nope/devices", json={"name": "X"}
             )
             assert response.status_code == 404
+
+
+class TestDeviceNameRules:
+    """① 类型-名称前缀自动纠正 ② 非法名 409/422 ③ rename 版本/审计 ④ rename 冲突。"""
+
+    def test_add_pc_with_switch_name_auto_corrected(self, tmp_path):
+        app = create_app(make_settings(tmp_path))
+        with TestClient(app) as client:
+            before = client.get("/api/scene").json()["version"]
+            response = client.post(
+                "/api/scene/buildings/teach/devices",
+                json={"name": "SW-JX-2961", "type": "pc"},
+                headers={"X-Operator": "agent"},
+            )
+            assert response.status_code == 200
+            body = response.json()
+            assert body["name_corrected"] is True
+            assert body["original_name"] == "SW-JX-2961"
+            assert body["device"]["name"] == "PC-JX3"
+            assert body["device"]["type"] == "pc"
+            assert body["version"] == before + 1
+            assert "自动纠正" in body["message"]
+
+            scene = client.get("/api/scene").json()
+            teach = building_by_id(scene, "teach")
+            names = [device["name"] for device in teach["devices"]]
+            assert "PC-JX3" in names
+            assert "SW-JX-2961" not in names
+            assert len(names) == 4  # 默认 3 台 + 新 PC
+
+            # 第二次传同样错误名：命中 alias，更新原设备而不是新建
+            again = client.post(
+                "/api/scene/buildings/teach/devices",
+                json={"name": "SW-JX-2961", "type": "pc"},
+            ).json()
+            assert again["device"]["name"] == "PC-JX3"
+            scene = client.get("/api/scene").json()
+            teach_names = [device["name"] for device in building_by_id(scene, "teach")["devices"]]
+            assert teach_names.count("PC-JX3") == 1
+            assert len(teach_names) == 4
+
+            # 再传另一个错误名 → 同楼同类型最大编号 +1
+            third = client.post(
+                "/api/scene/buildings/teach/devices",
+                json={"name": "SW-JX-9999", "type": "pc"},
+            ).json()
+            assert third["name_corrected"] is True
+            assert third["device"]["name"] == "PC-JX4"
+
+            audit = client.get(
+                "/api/audit", params={"action": "scene.device.upsert"}
+            ).json()
+            assert audit["count"] >= 1
+            first_detail = audit["items"][-1]["detail"]
+            if isinstance(first_detail, str):
+                first_detail = json.loads(first_detail)
+            assert first_detail["name_corrected"] is True
+            assert first_detail["original_name"] == "SW-JX-2961"
+            assert first_detail["requested_name"] == "SW-JX-2961"
+
+    def test_all_type_prefixes_and_controller(self, tmp_path):
+        app = create_app(make_settings(tmp_path))
+        with TestClient(app) as client:
+            cases = [
+                ("pc", "XX-1", "PC-"),
+                ("ap", "XX-2", "AP-"),
+                ("server", "XX-3", "SRV-"),
+                ("router", "XX-4", "RTR-"),
+            ]
+            for index, (device_type, bad_name, expected_prefix) in enumerate(cases):
+                response = client.post(
+                    "/api/scene/buildings/train/devices",
+                    json={"name": bad_name, "type": device_type},
+                ).json()
+                assert response["name_corrected"] is True
+                assert response["device"]["name"].startswith(expected_prefix)
+            # controller 前缀 NC；默认已有 NC → 生成 NC-2 之类
+            controller = client.post(
+                "/api/scene/buildings/core/devices",
+                json={"name": "WRONG-5", "type": "controller"},
+            ).json()
+            assert controller["device"]["name"].startswith("NC")
+
+    def test_valid_unknown_and_invalid_names(self, tmp_path):
+        app = create_app(make_settings(tmp_path))
+        with TestClient(app) as client:
+            # 合法前缀名不纠正
+            valid = client.post(
+                "/api/scene/buildings/teach/devices",
+                json={"name": "PC-JX8", "type": "pc"},
+            ).json()
+            assert valid["name_corrected"] is False
+            assert valid["device"]["name"] == "PC-JX8"
+            # 未知类型不做前缀校验（保留原名）
+            unknown = client.post(
+                "/api/scene/buildings/teach/devices",
+                json={"name": "ZZZ-1", "type": "unknown"},
+            ).json()
+            assert unknown["name_corrected"] is False
+            assert unknown["device"]["name"] == "ZZZ-1"
+
+            assert (
+                client.post(
+                    "/api/scene/buildings/teach/devices",
+                    json={"name": "", "type": "pc"},
+                ).status_code
+                == 422
+            )
+            whitespace = client.post(
+                "/api/scene/buildings/teach/devices",
+                json={"name": "   ", "type": "pc"},
+            )
+            assert whitespace.status_code in (409, 422)
+            illegal = client.post(
+                "/api/scene/buildings/teach/devices",
+                json={"name": "PC JX 1", "type": "pc"},
+            )
+            assert illegal.status_code == 422
+            too_long = client.post(
+                "/api/scene/buildings/teach/devices",
+                json={"name": "PC-" + "X" * 80, "type": "pc"},
+            )
+            assert too_long.status_code in (422,)
+
+    def test_rename_success_version_and_audit(self, tmp_path):
+        app = create_app(make_settings(tmp_path))
+        with TestClient(app) as client:
+            before = client.get("/api/scene").json()["version"]
+            response = client.patch(
+                "/api/scene/devices/PC-JX1",
+                json={"new_name": "PC-JX9"},
+                headers={"X-Operator": "agent"},
+            )
+            assert response.status_code == 200
+            body = response.json()
+            assert body["ok"] is True and body["changed"] is True
+            assert body["renamed_from"] == "PC-JX1"
+            assert body["device"]["name"] == "PC-JX9"
+            assert body["version"] == before + 1
+            scene = client.get("/api/scene").json()
+            names = {
+                device["name"]
+                for building in scene["buildings"]
+                for device in building["devices"]
+            }
+            assert "PC-JX9" in names and "PC-JX1" not in names
+            assert scene["version"] == before + 1
+            # 返回的 scene 是更新后的文档
+            assert any(
+                device["name"] == "PC-JX9"
+                for building in body["scene"]["buildings"]
+                for device in building["devices"]
+            )
+            audit = client.get(
+                "/api/audit", params={"action": "scene.device.rename"}
+            ).json()
+            assert audit["count"] == 1
+            item = audit["items"][0]
+            assert item["operator"] == "agent"
+            assert item["target"] == "PC-JX9"
+            detail = item["detail"]
+            if isinstance(detail, str):
+                detail = json.loads(detail)
+            assert detail["old_name"] == "PC-JX1"
+            assert detail["new_name"] == "PC-JX9"
+            # 同名幂等：不再 version++
+            same = client.patch(
+                "/api/scene/devices/PC-JX9", json={"new_name": "PC-JX9"}
+            ).json()
+            assert same["changed"] is False
+            assert same["version"] == before + 1
+
+    def test_rename_legacy_name_to_valid_prefix(self, tmp_path):
+        app = create_app(make_settings(tmp_path))
+        with TestClient(app) as client:
+            response = client.patch(
+                "/api/scene/devices/Server-1",
+                json={"new_name": "SRV-CORE-1"},
+                headers={"X-Operator": "web-ui"},
+            )
+            assert response.status_code == 200
+            assert response.json()["device"]["name"] == "SRV-CORE-1"
+            scene = client.get("/api/scene").json()
+            names = {
+                device["name"]
+                for building in scene["buildings"]
+                for device in building["devices"]
+            }
+            assert "SRV-CORE-1" in names and "Server-1" not in names
+
+    def test_rename_conflicts(self, tmp_path):
+        app = create_app(make_settings(tmp_path))
+        with TestClient(app) as client:
+            # 重名冲突
+            duplicate = client.patch(
+                "/api/scene/devices/PC-JX1", json={"new_name": "PC-JX2"}
+            )
+            assert duplicate.status_code == 409
+            assert "已存在" in duplicate.json()["detail"]
+            # 类型前缀不一致
+            mismatch = client.patch(
+                "/api/scene/devices/PC-JX1", json={"new_name": "SW-JX-9001"}
+            )
+            assert mismatch.status_code == 409
+            assert "不匹配" in mismatch.json()["detail"]
+            # 非法字符 → 422
+            illegal = client.patch(
+                "/api/scene/devices/PC-JX1", json={"new_name": "PC JX 1"}
+            )
+            assert illegal.status_code == 422
+            # 空/空白
+            blank = client.patch(
+                "/api/scene/devices/PC-JX1", json={"new_name": "   "}
+            )
+            assert blank.status_code in (409, 422)
+            # 不存在设备 → 404
+            assert (
+                client.patch(
+                    "/api/scene/devices/NOPE", json={"new_name": "PC-JX7"}
+                ).status_code
+                == 404
+            )
 
 
 class TestNewDeviceDetection:

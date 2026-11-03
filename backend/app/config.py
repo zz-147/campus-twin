@@ -104,7 +104,7 @@ class Settings:
     path_trace_timeout: float = 30.0  # NC flow-analysis 轮询总超时
     path_trace_poll_interval: float = 1.0
 
-    # ---- W10 Webhook 告警通知 ----
+    # ---- W10 Webhook 告警通知（W15 增加飞书卡片 / 恢复通知 / 运行时配置）----
     notify_enabled: bool = False
     notify_webhook_url: str = ""
     notify_webhook_type: str = "generic"  # generic | dingtalk | feishu | wecom
@@ -113,6 +113,10 @@ class Settings:
     notify_timeout: float = 5.0
     # 失败重试 2 次，指数退避 1s / 3s（单测可覆盖成 0 加速）
     notify_retry_delays: Tuple[float, ...] = (1.0, 3.0)
+    # W15：告警 cleared（恢复）时是否也推送“恢复卡片”，默认开启（演示需要）
+    notify_on_recovery: bool = True
+    # W15：飞书卡片底部的可选链接按钮（如 3D 大屏地址）；空 = 不显示按钮
+    notify_link_url: str = ""
 
     # ---- W10 SNMP 真实设备驱动 ----
     # SNMP_DEVICES='[{"name":"SW-A","ip":"127.0.0.1","community":"public","version":"2c","building":"core"}]'
@@ -180,6 +184,10 @@ class Settings:
                 _env_float("NOTIFY_RETRY_DELAY_1", cls.notify_retry_delays[0]),
                 _env_float("NOTIFY_RETRY_DELAY_2", cls.notify_retry_delays[1]),
             ),
+            notify_on_recovery=_env_bool(
+                "NOTIFY_ON_RECOVERY", cls.notify_on_recovery
+            ),
+            notify_link_url=_env_str("NOTIFY_LINK_URL", cls.notify_link_url),
             snmp_devices=_env_json_list("SNMP_DEVICES", []),
             snmp_timeout=_env_float("SNMP_TIMEOUT", cls.snmp_timeout),
             snmp_retries=int(_env_float("SNMP_RETRIES", float(cls.snmp_retries))),

@@ -1392,6 +1392,306 @@ async function runLiveW15Checks(cdp) {
 }
 
 /**
+ * W16 冒烟（契约 Mock）：通知设置对话框 —— 入口/回填/保存并测试/仅测试/URL 不回显/404 降级。
+ */
+async function runNotifyConfigChecks(cdp) {
+  const backend = W9_BACKEND;
+  const secretUrl = 'https://open.feishu.cn/open-apis/bot/v2/hook/smoke-secret-token-1234';
+  log('');
+  log('—— W16：通知设置对话框（飞书 Webhook 配置，契约 Mock）——');
+  const setNotifyMode = (mode) =>
+    fetch(`${backend}/__mock/notify_mode`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode }),
+    });
+  await setNotifyMode('ok');
+  await sleep(300);
+
+  // 1) 齿轮入口 → 打开对话框并回填
+  const gear = await cdp.evaluate(`(() => ({
+    visible: Boolean(document.getElementById('btn-notify-config')),
+    title: document.getElementById('btn-notify-config')?.title || '',
+    hidden: document.getElementById('btn-notify-config')?.classList.contains('hidden'),
+  }))()`);
+  check(
+    gear.visible && gear.hidden === false && /通知设置/.test(gear.title),
+    `顶部「告警通知」stat 显示设置齿轮（${gear.title}）`,
+    `通知设置入口异常：${JSON.stringify(gear)}`,
+  );
+  await cdp.evaluate(`document.getElementById('btn-notify-config').click()`);
+  await cdp.waitFor(
+    `!document.getElementById('notify-settings-overlay')?.classList.contains('hidden')`,
+    10000,
+    '点击齿轮后设置对话框未打开',
+  );
+  await sleep(1200);
+  const opened = await cdp.evaluate(`(() => ({
+    title: document.querySelector('.notify-title')?.textContent || '',
+    statusItems: document.querySelectorAll('.notify-status-item').length,
+    statuses: [...document.querySelectorAll('.notify-status-item')].map((node) =>
+      node.textContent.replace(/[\\s]+/g, ' ').trim(),
+    ),
+    enabled: document.getElementById('notify-enabled')?.checked,
+    type: document.getElementById('notify-type')?.value,
+    minSeverity: document.getElementById('notify-min-severity')?.value,
+    onRecovery: document.getElementById('notify-on-recovery')?.checked,
+    urlValue: document.getElementById('notify-webhook-url')?.value,
+    urlPlaceholder: document.getElementById('notify-webhook-url')?.placeholder || '',
+    urlType: document.getElementById('notify-webhook-url')?.type,
+    help: document.querySelector('.notify-help')?.textContent?.replace(/[\\s]+/g, ' ').trim() || '',
+    buttons: [...document.querySelectorAll('.notify-actions button')].map((node) => node.textContent.trim()),
+    debug: window.__campusTwin.notifySettings.getDebug(),
+    stats: JSON.parse(document.getElementById('dev-stats')?.textContent || '{}'),
+  }))()`);
+  log(`打开：${opened.statusItems} 项状态 / 类型=${opened.type} / 等级=${opened.minSeverity} / 按钮=${opened.buttons.join('/')}`);
+  check(opened.title.includes('飞书通知设置'), `对话框标题为「飞书通知设置」（${opened.title}）`, `对话框标题异常：${opened.title}`);
+  check(opened.statusItems >= 6, `状态区展示 ${opened.statusItems} 项（启用/最近发送/错误/成功失败等）`, `状态区异常：${opened.statusItems}`);
+  check(
+    opened.statuses.some((item) => item.includes('启用状态')) &&
+      opened.statuses.some((item) => item.includes('最近发送')) &&
+      opened.statuses.some((item) => item.includes('最近错误')) &&
+      opened.statuses.some((item) => item.includes('成功 / 失败')),
+    '状态区包含启用/最近发送/最近错误/成功失败计数',
+    `状态区字段缺失：${JSON.stringify(opened.statuses)}`,
+  );
+  check(
+    opened.enabled === true && opened.minSeverity === 'critical' && opened.onRecovery === false,
+    '打开时回填启用/最低等级/恢复通知',
+    `表单回填异常：${JSON.stringify({ enabled: opened.enabled, min: opened.minSeverity, recovery: opened.onRecovery })}`,
+  );
+  check(
+    opened.urlValue === '' && opened.urlType === 'password' && opened.urlPlaceholder.includes('****'),
+    'Webhook URL 不回显明文（password + 脱敏占位）',
+    `URL 回填异常：${JSON.stringify({ value: opened.urlValue, type: opened.urlType, placeholder: opened.urlPlaceholder })}`,
+  );
+  check(
+    opened.help.includes('飞书群') && opened.help.includes('群机器人') && opened.help.includes('Webhook'),
+    '对话框展示飞书群机器人获取步骤帮助',
+    `帮助文案缺失：${opened.help}`,
+  );
+  check(
+    opened.buttons.length === 3 &&
+      opened.buttons.includes('保存并测试') &&
+      opened.buttons.includes('仅测试') &&
+      opened.buttons.includes('取消'),
+    '对话框包含「保存并测试 / 仅测试 / 取消」按钮',
+    `按钮异常：${JSON.stringify(opened.buttons)}`,
+  );
+  check(
+    opened.debug.open === true && opened.stats.notifyConfigOpen === true,
+    'dev-stats 记录对话框打开状态',
+    `dev-stats 对话框状态异常：${JSON.stringify(opened.stats)}`,
+  );
+
+  // 2) 修改表单 → 保存并测试
+  await cdp.evaluate(`(() => {
+    document.getElementById('notify-type').value = 'feishu';
+    document.getElementById('notify-min-severity').value = 'warning';
+    document.getElementById('notify-on-recovery').checked = true;
+    document.getElementById('notify-webhook-url').value = ${JSON.stringify(secretUrl)};
+    document.getElementById('notify-save-test').click();
+  })()`);
+  await cdp.waitFor(
+    `(document.getElementById('notify-settings-result')?.textContent || '').includes('配置已保存')`,
+    20000,
+    '保存通知配置未返回结果',
+  );
+  await sleep(1800);
+  const saved = await cdp.evaluate(`(() => ({
+    result: document.getElementById('notify-settings-result')?.textContent || '',
+    resultClass: document.getElementById('notify-settings-result')?.className || '',
+    statuses: [...document.querySelectorAll('.notify-status-item')].map((node) =>
+      node.textContent.replace(/[\\s]+/g, ' ').trim(),
+    ),
+    type: document.getElementById('notify-type')?.value,
+    minSeverity: document.getElementById('notify-min-severity')?.value,
+    onRecovery: document.getElementById('notify-on-recovery')?.checked,
+    urlValueAfter: document.getElementById('notify-webhook-url')?.value,
+    urlPlaceholder: document.getElementById('notify-webhook-url')?.placeholder || '',
+    statSub: document.getElementById('stat-notify-sub')?.textContent || '',
+    secretInHtml: document.body.innerHTML.includes('smoke-secret-token-1234'),
+    runtimeError: document.getElementById('runtime-error')?.textContent || '',
+    stats: JSON.parse(document.getElementById('dev-stats')?.textContent || '{}'),
+  }))()`);
+  const rawNotify = await (await fetch(`${backend}/__mock/notify_raw`)).json();
+  const publicNotify = await (await fetch(`${backend}/api/notify/status`)).json();
+  log(
+    `保存后：result=${saved.result} / HUD=${saved.statSub} / 后端 type=${rawNotify.type} on_recovery=${rawNotify.on_recovery} / 公开 URL=${publicNotify.webhook_url}`,
+  );
+  check(
+    saved.result.includes('配置已保存') && saved.result.includes('测试通知发送成功'),
+    `保存并测试成功（${saved.result}）`,
+    `保存并测试异常：${saved.result}`,
+  );
+  check(
+    rawNotify.type === 'feishu' &&
+      rawNotify.min_severity === 'warning' &&
+      rawNotify.on_recovery === true &&
+      String(rawNotify.url).includes('smoke-secret-token-1234'),
+    'mock 后端已保存飞书类型/最低等级/恢复通知/Webhook URL',
+    `mock 配置未写入：${JSON.stringify({ type: rawNotify.type, min: rawNotify.min_severity, recovery: rawNotify.on_recovery })}`,
+  );
+  check(
+    publicNotify.webhook_url.includes('****') && !publicNotify.webhook_url.includes('smoke-secret-token'),
+    `状态接口返回脱敏 Webhook（${publicNotify.webhook_url}）`,
+    `状态接口 URL 未脱敏：${publicNotify.webhook_url}`,
+  );
+  check(
+    saved.urlValueAfter === '' && saved.secretInHtml === false && !saved.urlPlaceholder.includes('smoke-secret-token'),
+    '保存后清空 URL 输入框，页面 DOM 不残留明文 URL',
+    `URL 残留：${JSON.stringify({ value: saved.urlValueAfter, inHtml: saved.secretInHtml })}`,
+  );
+  check(
+    saved.statuses.some((item) => item.includes('通知类型 飞书')) &&
+      saved.statuses.some((item) => item.includes('恢复通知 已开启')) &&
+      saved.statuses.some((item) => item.includes('****')),
+    '保存后状态区刷新为飞书 / 恢复通知开启 / 脱敏 URL',
+    `状态区未刷新：${JSON.stringify(saved.statuses)}`,
+  );
+  check(
+    saved.statSub.includes('飞书') && saved.statSub.includes('恢复通知'),
+    `顶部通知 stat 同步刷新（${saved.statSub}）`,
+    `顶部 stat 未刷新：${saved.statSub}`,
+  );
+  check(
+    saved.stats.notifyConfigOpen === true &&
+      saved.stats.notifyOnRecovery === true &&
+      saved.stats.notifyType === 'feishu',
+    'dev-stats 记录通知配置状态（飞书 / 恢复通知）',
+    `dev-stats 通知状态异常：${JSON.stringify(saved.stats)}`,
+  );
+  check(saved.runtimeError === '', '保存通知配置无运行时错误', `保存后运行时错误：${saved.runtimeError}`);
+
+  // 截图（对话框打开、保存成功、URL 已清空且脱敏）
+  const notifyShot = await cdp.screenshot(join(DOCS_DIR, 'notify-settings.png'));
+  log(`通知设置截图：${notifyShot}`);
+
+  // 3) 仅测试：sent_count 递增
+  const sentBefore = Number((await (await fetch(`${backend}/api/notify/status`)).json()).sent_count) || 0;
+  await cdp.evaluate(`document.getElementById('notify-test-only').click()`);
+  await cdp.waitFor(
+    `(document.getElementById('notify-settings-result')?.textContent || '').includes('测试通知发送成功')`,
+    20000,
+    '「仅测试」未返回结果',
+  );
+  await sleep(900);
+  const sentAfter =
+    Number((await (await fetch(`${backend}/api/notify/status`)).json()).sent_count) || 0;
+  check(
+    sentAfter > sentBefore,
+    `「仅测试」发送成功且 sent_count 递增（${sentBefore} → ${sentAfter}）`,
+    `仅测试异常：sent ${sentBefore} → ${sentAfter}`,
+  );
+
+  // 4) 取消关闭
+  await cdp.evaluate(`document.getElementById('notify-cancel').click()`);
+  await sleep(500);
+  const closed = await cdp.evaluate(`({
+    open: !document.getElementById('notify-settings-overlay').classList.contains('hidden'),
+    debug: window.__campusTwin.notifySettings.getDebug(),
+    stats: JSON.parse(document.getElementById('dev-stats')?.textContent || '{}'),
+  })`);
+  check(
+    closed.open === false && closed.debug.open === false && closed.stats.notifyConfigOpen === false,
+    '点击「取消」关闭对话框并清理状态',
+    `关闭异常：${JSON.stringify(closed)}`,
+  );
+
+  // 5) 配置接口 404 降级
+  await setNotifyMode('config404');
+  await cdp.evaluate(`document.getElementById('btn-notify-config').click()`);
+  await sleep(1000);
+  await cdp.evaluate(`document.getElementById('notify-save-test').click()`);
+  await cdp.waitFor(
+    `(document.getElementById('notify-settings-result')?.textContent || '').includes('未就绪')`,
+    15000,
+    '配置接口 404 时未显示降级提示',
+  );
+  await sleep(500);
+  const degraded = await cdp.evaluate(`({
+    result: document.getElementById('notify-settings-result')?.textContent || '',
+    resultClass: document.getElementById('notify-settings-result')?.className || '',
+    stillOpen: !document.getElementById('notify-settings-overlay').classList.contains('hidden'),
+    runtimeError: document.getElementById('runtime-error')?.textContent || '',
+    stats: JSON.parse(document.getElementById('dev-stats')?.textContent || '{}'),
+  })`);
+  check(
+    degraded.result.includes('未就绪') && degraded.stillOpen === true,
+    `配置接口 404 时优雅降级并保留对话框（${degraded.result.slice(0, 60)}）`,
+    `404 降级异常：${JSON.stringify(degraded)}`,
+  );
+  check(
+    degraded.resultClass.includes('warn') && degraded.runtimeError === '',
+    '404 降级显示 warn 样式且无运行时错误',
+    `降级样式/错误异常：${JSON.stringify({ cls: degraded.resultClass, err: degraded.runtimeError })}`,
+  );
+  await cdp.evaluate(`document.getElementById('notify-cancel').click()`);
+  await sleep(300);
+  await setNotifyMode('ok');
+}
+
+/**
+ * W16 live 分支：真实后端打开通知设置对话框，校验 status 回填、URL 脱敏、无报错；
+ * 配置接口（task-33）就绪前不做保存写操作（避免改动真实通知配置）。
+ */
+async function runLiveNotifyConfigChecks(cdp) {
+  log('');
+  log('—— W16：通知设置对话框（真实后端）——');
+  let statusDoc = null;
+  try {
+    const response = await fetch(`${API_BASE}/api/notify/status`, {
+      signal: AbortSignal.timeout(8000),
+    });
+    if (response.ok) statusDoc = await response.json();
+  } catch (error) {
+    log(`  [INFO] /api/notify/status 不可用（${error.message}），校验对话框降级`);
+  }
+  const gear = await cdp.evaluate(`Boolean(document.getElementById('btn-notify-config'))`);
+  check(gear === true, '真实后端下顶部显示通知设置齿轮', '通知设置齿轮缺失');
+  await cdp.evaluate(`document.getElementById('btn-notify-config').click()`);
+  await cdp.waitFor(
+    `!document.getElementById('notify-settings-overlay')?.classList.contains('hidden')`,
+    10000,
+    '真实后端下通知设置对话框未打开',
+  );
+  await sleep(1000);
+  const dialog = await cdp.evaluate(`(() => ({
+    title: document.querySelector('.notify-title')?.textContent || '',
+    statusItems: document.querySelectorAll('.notify-status-item').length,
+    urlValue: document.getElementById('notify-webhook-url')?.value,
+    urlPlaceholder: document.getElementById('notify-webhook-url')?.placeholder || '',
+    urlType: document.getElementById('notify-webhook-url')?.type,
+    help: document.querySelector('.notify-help')?.textContent || '',
+    runtimeError: document.getElementById('runtime-error')?.textContent || '',
+    debug: window.__campusTwin.notifySettings.getDebug(),
+  }))()`);
+  check(
+    dialog.title.includes('飞书通知设置') && dialog.statusItems >= 1,
+    `真实后端对话框打开并展示 ${dialog.statusItems} 项状态`,
+    `真实对话框异常：${JSON.stringify(dialog)}`,
+  );
+  check(
+    dialog.urlValue === '' && dialog.urlType === 'password' && dialog.urlPlaceholder.includes('****'),
+    '真实状态打开时 Webhook 地址脱敏且不回显明文',
+    `真实 URL 回显异常：${JSON.stringify({ value: dialog.urlValue, type: dialog.urlType, placeholder: dialog.urlPlaceholder })}`,
+  );
+  check(dialog.help.includes('飞书群'), '真实对话框展示飞书接入帮助', `帮助文案缺失：${dialog.help.slice(0, 60)}`);
+  check(dialog.runtimeError === '', '打开通知设置无运行时错误', `运行时错误：${dialog.runtimeError}`);
+  if (statusDoc) {
+    log('  [INFO] 真实 /api/notify/status 可用；配置保存等待 task-33（本次仅回填/脱敏校验）');
+  } else {
+    log('  [INFO] 真实通知状态不可用，对话框已优雅降级为未配置');
+  }
+  await cdp.evaluate(`document.getElementById('notify-cancel').click()`);
+  await sleep(300);
+  const closed = await cdp.evaluate(
+    `!document.getElementById('notify-settings-overlay').classList.contains('hidden')`,
+  );
+  check(closed === false, '真实后端关闭对话框正常', '关闭对话框异常');
+}
+
+/**
  * 纯前端单测式断言（无 DOM、无网络）：验证 stale_source 语义在纯函数层正确。
  * 场景：PC-JX1 有一条 stale_source=true 的 NC 滞后 issue（数据源已恢复），
  *       SW-SX-2960 有一条真正的 active 告警。
@@ -2040,6 +2340,8 @@ async function runLiveChecks(cdp) {
   await runLiveStreamingChecks(cdp);
   // ---- W15：可观测性页签（真实 Agent，未就绪时校验降级） ----
   await runLiveW15Checks(cdp);
+  // ---- W16：通知设置对话框（真实后端，仅回填/脱敏校验，保存等 task-33） ----
+  await runLiveNotifyConfigChecks(cdp);
 
   await restoreAutoRotate(cdp, wasAutoRotate);
 }
@@ -2167,9 +2469,10 @@ async function runAiOfflineChecks(cdp) {
   check(state.runtimeError === '', 'AI 离线时页面无运行时脚本错误', `页面运行时错误：${state.runtimeError}`);
   check(state.stats.buildings === 4, 'AI 离线时 4 栋楼正常渲染', `楼栋数异常：${state.stats.buildings}`);
   check(
-    state.stats.devices === backendDevices.length && state.stats.hosts === backendHosts.length,
-    `AI 离线时设备/主机标记不受影响（${state.stats.devices} + ${state.stats.hosts}）`,
-    `AI 离线时设备/主机数异常：${state.stats.devices}/${state.stats.hosts}`,
+    // W9 配置驱动场景可能包含 /api/scene 独有设备（新设备确认后尚未进 inventory），设备数允许 >= 库存数
+    state.stats.devices >= backendDevices.length && state.stats.hosts === backendHosts.length,
+    `AI 离线时设备/主机标记不受影响（场景 ${state.stats.devices} + ${state.stats.hosts} / 库存 ${backendDevices.length} + ${backendHosts.length}）`,
+    `AI 离线时设备/主机数异常：场景 ${state.stats.devices}/${state.stats.hosts}，库存 ${backendDevices.length}/${backendHosts.length}`,
   );
   check(String(state.deviceValue).includes('/'), `顶部状态栏设备数据正常：${state.deviceValue}`, `状态栏设备数据异常：${state.deviceValue}`);
   check(/秒前|分 .* 秒前|陈旧/.test(state.freshness), `数据新鲜度仍正常刷新：${state.freshness}`, `新鲜度异常：${state.freshness}`);
@@ -2554,6 +2857,9 @@ async function runW9Checks(cdp) {
   // W15：可观测性页签（metrics / traces / RAG 评测）
   await runW15Checks(cdp);
 
+  // W16：通知设置对话框（飞书 Webhook 配置 / 保存并测试 / 404 降级）
+  await runNotifyConfigChecks(cdp);
+
   await restoreAutoRotate(cdp, wasAutoRotate);
 }
 
@@ -2726,7 +3032,18 @@ async function runW10Checks(cdp) {
     15000,
     '发送测试通知未返回成功提示',
   );
-  await sleep(800);
+  // 等待 REST 刷新把最新 sent_count 写入 dev-stats（避免固定 sleep 的时序抖动）
+  await cdp
+    .waitFor(
+      `(() => {
+        const stats = JSON.parse(document.getElementById('dev-stats')?.textContent || '{}');
+        return (stats.notifySentCount || 0) > ${Number(notifyBefore.stats.notifySentCount) || 0};
+      })()`,
+      10000,
+      '刷新后 dev-stats 的 sent_count 未增加',
+    )
+    .catch(() => {});
+  await sleep(300);
   const notifyAfter = await cdp.evaluate(`(() => ({
     toast: document.getElementById('toast')?.textContent || '',
     sub: document.getElementById('stat-notify-sub')?.textContent || '',
@@ -2874,8 +3191,8 @@ async function main() {
     const passMessages = {
       demo: '离线提示、演示数据开关、告警脉冲与演示水印全部通过。',
       'ai-offline': '「AI 服务未连接」降级提示正确，3D 大屏与实时数据不受影响。',
-      live: '页面加载、4 楼/设备渲染、W3 实时数据增强、W7.1 stale_source 语义、W9 配置驱动场景/告警管理 UI、W9.1 新 trace 结构（plan/工具序列）、live action 卡片（场景新增设备取消 + 危险操作取消，数据未变更）、W10 路径追踪/根因分组/通知状态（就绪则联调、未就绪则降级提示）、W12 流式接口未就绪时自动回退非流式并提示、W15 可观测性页签（就绪则联调指标/trace/RAG、未就绪则优雅降级）、点击聚焦、AI 真实问答与 trace 全部通过。',
-      w9: '配置驱动动态场景（新增楼栋/pending 设备/自动高亮）、新设备确认撤销、告警删除/静默/清空/撤销、历史会话、Agent action 卡片、W10 路径追踪 3D（完整/断点/清除）、告警根因分组（抑制成员灰显 + 操作保留）、通知状态/测试、W12 SSE 流式渲染/事件顺序/token 拼接/停止生成/RAG 引用/404 回退、W15 可观测性页签（指标卡/trace 列表展开/会话过滤/RAG 评测卡/404 降级）全部通过。',
+      live: '页面加载、4 楼/设备渲染、W3 实时数据增强、W7.1 stale_source 语义、W9 配置驱动场景/告警管理 UI、W9.1 新 trace 结构（plan/工具序列）、live action 卡片（场景新增设备取消 + 危险操作取消，数据未变更）、W10 路径追踪/根因分组/通知状态（就绪则联调、未就绪则降级提示）、W12 流式接口未就绪时自动回退非流式并提示、W15 可观测性页签（就绪则联调指标/trace/RAG、未就绪则优雅降级）、W16 通知设置对话框（真实 status 回填/URL 脱敏/无报错；保存配置等 task-33）、点击聚焦、AI 真实问答与 trace 全部通过。',
+      w9: '配置驱动动态场景（新增楼栋/pending 设备/自动高亮）、新设备确认撤销、告警删除/静默/清空/撤销、历史会话、Agent action 卡片、W10 路径追踪 3D（完整/断点/清除）、告警根因分组（抑制成员灰显 + 操作保留）、通知状态/测试、W12 SSE 流式渲染/事件顺序/token 拼接/停止生成/RAG 引用/404 回退、W15 可观测性页签（指标卡/trace 列表展开/会话过滤/RAG 评测卡/404 降级）、W16 通知设置对话框（回填/保存并测试/仅测试/URL 脱敏不回显/404 降级）全部通过。',
     };
     log(`结果：PASS —— ${passMessages[MODE] || '全部检查通过。'}`);
   } else {

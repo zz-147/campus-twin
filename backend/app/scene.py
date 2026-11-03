@@ -43,6 +43,43 @@ MAX_OFFSET_ATTEMPTS = 40
 MAX_ITEMS_PER_ROW = 4
 ROOF_OFFSET_Y = 3.8
 
+# W13.1：设备类型 → 名称前缀（类型-名称一致性校验 / 自动纠正 / rename 共用）
+# 规则：pc→PC、switch→SW、ap→AP、server→SRV、router→RTR、controller→NC
+TYPE_PREFIX: Dict[str, str] = {
+    "pc": "PC",
+    "switch": "SW",
+    "ap": "AP",
+    "server": "SRV",
+    "router": "RTR",
+    "controller": "NC",
+}
+TYPE_ALIASES: Dict[str, str] = {
+    "pc": "pc",
+    "computer": "pc",
+    "host": "pc",
+    "switch": "switch",
+    "sw": "switch",
+    "ap": "ap",
+    "access_point": "ap",
+    "accesspoint": "ap",
+    "server": "server",
+    "srv": "server",
+    "router": "router",
+    "rtr": "router",
+    "controller": "controller",
+    "nc": "controller",
+}
+# 楼栋 id → 名称缩写（沿用现有 JX/SX/SS 约定；新楼栋可用 device_assignment.building_codes 覆盖）
+BUILDING_CODES: Dict[str, str] = {
+    "core": "CORE",
+    "teach": "JX",
+    "train": "SX",
+    "dorm": "SS",
+}
+MAX_DEVICE_NAME_LENGTH = 64
+_BAD_NAME_CHARS = re.compile(r"[\s/\\<>\"'`;:&|]")
+_TRAILING_DIGITS = re.compile(r"(\d+)(?!.*\d)")
+
 THEME = {
     "name": "low-poly-campus",
     "style": "low-poly",
@@ -137,8 +174,85 @@ class SceneConflict(SceneError):
     status_code = 409
 
 
+class SceneInvalid(SceneError):
+    """设备名格式非法/过长（HTTP 422；与 409 冲突区分）。"""
+
+    status_code = 422
+
+
 def normalize_name(value: Any) -> str:
     return str(value or "").strip().lower()
+
+
+def canonical_device_type(value: Any) -> str:
+    """归一化设备类型（PC / Switch / access_point 等均映射到同一个小写类型）。"""
+    raw = str(value or "").strip().lower()
+    if not raw:
+        return "unknown"
+    return TYPE_ALIASES.get(raw, raw)
+
+
+def expected_name_prefix(device_type: Any) -> Optional[str]:
+    return TYPE_PREFIX.get(canonical_device_type(device_type))
+
+
+def name_matches_type(name: Any, device_type: Any) -> bool:
+    """设备名是否以该类型要求的前缀开头（大小写不敏感）。"""
+    prefix = expected_name_prefix(device_type)
+    if not prefix:
+        return True
+    upper = str(name or "").strip().upper()
+    if prefix == "NC":
+        return upper == "NC" or upper.startswith("NC-")
+    return upper.startswith(prefix + "-")
+
+
+def validate_device_name(name: Any) -> str:
+    """校验名称非空/长度/非法字符；返回 strip 后的名称。"""
+    text = str(name or "").strip()
+    if not text:
+        raise SceneConflict("设备 name 不能为空")
+    if len(text) > MAX_DEVICE_NAME_LENGTH:
+        raise SceneInvalid(
+            "设备名过长（最多 {} 个字符）：{}".format(MAX_DEVICE_NAME_LENGTH, text[:32])
+        )
+    if _BAD_NAME_CHARS.search(text):
+        raise SceneInvalid(
+            "设备名包含非法字符（空白/斜杠/引号/冒号等）：{}".format(text)
+        )
+    return text
+
+
+def building_code_for(document: Dict[str, Any], building: Dict[str, Any]) -> str:
+    """楼栋名称缩写：优先文档配置，其次内置 JX/SX/SS，最后从 id/name 推导。"""
+    assignment = document.get("device_assignment") or {}
+    configured = assignment.get("building_codes") or {}
+    code = configured.get(str(building.get("id") or ""))
+    if code:
+        return str(code).upper()
+    code = BUILDING_CODES.get(str(building.get("id") or ""))
+    if code:
+        return code
+    raw = re.sub(
+        r"[^A-Za-z0-9]",
+        "",
+        str(building.get("id") or building.get("name") or "BLD"),
+    ).upper()
+    return (raw or "BLD")[:6]
+
+
+def max_numeric_suffix(name: Any) -> int:
+    match = _TRAILING_DIGITS.search(str(name or ""))
+    return int(match.group(1)) if match else 0
+
+
+def format_generated_name(prefix: str, code: str, number: int, device_type: str) -> str:
+    """统一命名格式：PC/AP 用 PC-JX3；SW/SRV/RTR 用 SW-JX-2961；控制器用 NC。"""
+    if device_type == "controller":
+        return "NC" if number <= 1 else "NC-{}".format(number)
+    if device_type in ("pc", "ap"):
+        return "{}-{}{}".format(prefix, code, number)
+    return "{}-{}-{}".format(prefix, code, number)
 
 
 def _slot_position(building: Dict[str, Any], index: int, count: int) -> Dict[str, float]:
@@ -196,9 +310,11 @@ def build_default_scene() -> Dict[str, Any]:
         "device_assignment": {
             "hostname_rules": [dict(rule) for rule in DEFAULT_HOSTNAME_RULES],
             "ip_building_map": dict(DEFAULT_IP_BUILDING_MAP),
+            "building_codes": dict(BUILDING_CODES),
         },
         "buildings": buildings,
         "removed_devices": [],
+        "device_aliases": {},
     }
 
 
@@ -317,24 +433,55 @@ class SceneService:
     ) -> Dict[str, Any]:
         document = self.get_scene()
         building = self._find_building(document, building_id)
-        clean_name = str(name or "").strip()
-        if not clean_name:
-            raise SceneConflict("设备 name 不能为空")
+        requested_name = validate_device_name(name)
 
-        previous = self._find_device(document, clean_name)
+        previous = self._find_device(document, requested_name)
         previous_building_id = previous[0] if previous else None
         previous_device = previous[1] if previous else None
+        raw_type = device_type or (previous_device or {}).get("type") or "unknown"
+        final_type = canonical_device_type(raw_type)
 
+        name_corrected = False
+        original_name: Optional[str] = None
+        correction_message = ""
+
+        # W13.1：仅对**新设备**做类型-前缀一致性校验；已有设备保留原名（避免破坏历史数据），
+        # 历史错误名由 PATCH /api/scene/devices/{name} 重命名接口修复。
+        if previous_device is None and expected_name_prefix(final_type):
+            if not name_matches_type(requested_name, final_type):
+                original_name = requested_name
+                aliases = document.get("device_aliases") or {}
+                alias_target = aliases.get(normalize_name(original_name))
+                if alias_target and self._find_device(document, alias_target) is not None:
+                    corrected_name = str(alias_target)
+                else:
+                    corrected_name = self._generate_device_name(
+                        document, building, final_type
+                    )
+                if normalize_name(corrected_name) != normalize_name(requested_name):
+                    name_corrected = True
+                    correction_message = (
+                        "设备名 {} 与类型 {} 不匹配，已自动纠正为 {}".format(
+                            original_name, final_type, corrected_name
+                        )
+                    )
+                    requested_name = corrected_name
+                    # 自动纠正后的名字可能已存在（重复提交同一错误名）→ 走更新而不是新建
+                    previous = self._find_device(document, requested_name)
+                    previous_building_id = previous[0] if previous else None
+                    previous_device = previous[1] if previous else None
+
+        clean_name = requested_name
         base_position = self._device_position(
             building, position, fallback_index=len(building.get("devices", []))
         )
-        final_position, adjusted, message = self._avoid_collision(
+        final_position, adjusted, collision_message = self._avoid_collision(
             building, base_position, ignore_name=clean_name
         )
         now = time.time()
         device = {
             "name": clean_name,
-            "type": (device_type or (previous_device or {}).get("type") or "unknown"),
+            "type": final_type,
             "position": final_position,
             "status": (
                 status
@@ -371,6 +518,9 @@ class SceneService:
             for tombstone in document.get("removed_devices", [])
             if normalize_name(tombstone.get("name")) != normalize_name(clean_name)
         ]
+        # 记录旧名 → 新名别名，避免 NC inventory 仍返回旧名时被误判为"新设备"
+        if original_name and name_corrected:
+            self._record_alias(document, original_name, clean_name)
         document = self._commit(
             document,
             operator,
@@ -381,14 +531,20 @@ class SceneService:
                 "previous_building_id": previous_building_id,
                 "status": device["status"],
                 "adjusted": adjusted,
+                "requested_name": str(name or "").strip(),
+                "original_name": original_name,
+                "name_corrected": name_corrected,
+                "type": final_type,
             },
         )
+        messages = [message for message in (correction_message, collision_message) if message]
         logger.info(
-            "场景设备 upsert：%s -> %s（status=%s adjusted=%s operator=%s）",
+            "场景设备 upsert：%s -> %s（status=%s adjusted=%s corrected=%s operator=%s）",
             clean_name,
             building_id,
             device["status"],
             adjusted,
+            name_corrected,
             operator,
         )
         return {
@@ -397,7 +553,10 @@ class SceneService:
             "building_id": building_id,
             "device": device,
             "adjusted": adjusted,
-            "message": message,
+            "name_corrected": name_corrected,
+            "original_name": original_name,
+            "requested_name": str(name or "").strip(),
+            "message": "；".join(messages),
         }
 
     def confirm_device(self, operator: str, name: str) -> Dict[str, Any]:
@@ -466,6 +625,13 @@ class SceneService:
         )
         # 只保留最近 200 条 tombstone，避免 JSON 无限增长
         document["removed_devices"] = tombstones[-200:]
+        # 清理指向被删设备的别名，避免旧名永远无法进入 pending
+        aliases = document.get("device_aliases") or {}
+        document["device_aliases"] = {
+            key: value
+            for key, value in aliases.items()
+            if normalize_name(value) != normalize_name(device.get("name"))
+        }
         document = self._commit(
             document,
             operator,
@@ -480,6 +646,79 @@ class SceneService:
             "deleted": device.get("name"),
             "building_id": building_id,
             "removed_at": now,
+        }
+
+    def rename_device(
+        self, operator: str, name: str, new_name: str
+    ) -> Dict[str, Any]:
+        """重命名场景设备（校验非空/非法字符/重名/类型前缀，version++ + 审计）。"""
+        document = self.get_scene()
+        found = self._find_device(document, name)
+        if found is None:
+            raise SceneNotFound("场景中不存在设备：{}".format(name))
+        building_id, device = found
+        old_name = str(device.get("name"))
+        requested = str(new_name or "").strip()
+        if not requested:
+            raise SceneConflict("新设备名不能为空")
+        validate_device_name(requested)
+        device_type = canonical_device_type(device.get("type"))
+        prefix = expected_name_prefix(device_type)
+        if prefix and not name_matches_type(requested, device_type):
+            raise SceneConflict(
+                "新名称 {} 与设备类型 {} 不匹配（{} 类型名称必须以 {} 开头）".format(
+                    requested, device_type, device_type, prefix
+                )
+            )
+        if requested == old_name:
+            return {
+                "ok": True,
+                "changed": False,
+                "version": document["version"],
+                "building_id": building_id,
+                "device": device,
+                "renamed_from": old_name,
+            }
+        if self._name_taken(document, requested, ignore_name=old_name):
+            raise SceneConflict("设备名已存在：{}".format(requested))
+
+        now = time.time()
+        old_normalized = normalize_name(old_name)
+        device["name"] = requested
+        device["updated_at"] = now
+        for candidate in document["buildings"]:
+            if candidate.get("id") == building_id:
+                candidate["updated_at"] = now
+                break
+        # 所有指向旧名的别名重定向到新名
+        aliases = document.get("device_aliases") or {}
+        for key, value in list(aliases.items()):
+            if normalize_name(value) == old_normalized:
+                aliases[key] = requested
+        self._record_alias(document, old_name, requested)
+        document = self._commit(
+            document,
+            operator,
+            action="scene.device.rename",
+            target=requested,
+            detail={
+                "old_name": old_name,
+                "new_name": requested,
+                "building_id": building_id,
+                "type": device_type,
+            },
+        )
+        logger.info(
+            "场景设备重命名：%s -> %s（operator=%s）", old_name, requested, operator
+        )
+        return {
+            "ok": True,
+            "changed": True,
+            "version": document["version"],
+            "building_id": building_id,
+            "device": device,
+            "renamed_from": old_name,
+            "scene": document,
         }
 
     def reset(self, operator: str) -> Dict[str, Any]:
@@ -541,6 +780,10 @@ class SceneService:
             for building in document["buildings"]
             for device in building.get("devices", [])
         }
+        # 自动纠正/重命名前的旧名也视为已纳管，避免 NC inventory 旧 hostname 反复进 pending
+        for old_name, canonical_name in (document.get("device_aliases") or {}).items():
+            known_names.add(normalize_name(old_name))
+            known_names.add(normalize_name(canonical_name))
         by_id = {device.id: device for device in devices}
         result: List[Dict[str, Any]] = []
         for device in devices:
@@ -666,6 +909,59 @@ class SceneService:
                 if normalize_name(device.get("name")) == target:
                     return building.get("id"), device
         return None
+
+    @staticmethod
+    def _name_taken(document: Dict[str, Any], name: str, ignore_name: Optional[str] = None) -> bool:
+        target = normalize_name(name)
+        ignored = normalize_name(ignore_name)
+        for building in document.get("buildings", []):
+            for device in building.get("devices", []):
+                candidate = normalize_name(device.get("name"))
+                if candidate == target and candidate != ignored:
+                    return True
+        return False
+
+    @classmethod
+    def _generate_device_name(
+        cls,
+        document: Dict[str, Any],
+        building: Dict[str, Any],
+        device_type: str,
+    ) -> str:
+        """按同楼栋同类型最大编号 +1 生成不冲突的合法名。"""
+        canonical = canonical_device_type(device_type)
+        prefix = TYPE_PREFIX.get(canonical)
+        if not prefix:
+            raise SceneInvalid("无法为未知设备类型生成名称：{}".format(device_type))
+        code = building_code_for(document, building)
+        max_suffix = 0
+        for device in building.get("devices", []):
+            if canonical_device_type(device.get("type")) == canonical:
+                max_suffix = max(max_suffix, max_numeric_suffix(device.get("name")))
+        for offset in range(1, 1000):
+            candidate = format_generated_name(prefix, code, max_suffix + offset, canonical)
+            if not cls._name_taken(document, candidate):
+                return candidate
+        raise SceneConflict(
+            "无法为楼栋 {} 生成可用的 {} 设备名（编号空间耗尽）".format(
+                building.get("id"), canonical
+            )
+        )
+
+    @staticmethod
+    def _record_alias(document: Dict[str, Any], old_name: str, new_name: str) -> None:
+        old_normalized = normalize_name(old_name)
+        new_normalized = normalize_name(new_name)
+        if not old_normalized or old_normalized == new_normalized:
+            return
+        aliases = document.setdefault("device_aliases", {})
+        for key, value in list(aliases.items()):
+            if normalize_name(value) == old_normalized:
+                aliases[key] = new_name
+        aliases[old_normalized] = new_name
+        if len(aliases) > 200:
+            for key in list(aliases)[: len(aliases) - 200]:
+                aliases.pop(key, None)
 
     @staticmethod
     def _device_position(

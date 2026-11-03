@@ -38,6 +38,8 @@ function seedState() {
     streamMode: 'ok',
     // W15：可观测性接口模拟模式（ok / 404 / no_rag，由 /__mock/w15_mode 切换）
     w15Mode: 'ok',
+    // W16：通知配置接口模拟模式（ok / config404，由 /__mock/notify_mode 切换）
+    notifyMode: 'ok',
     audit: [],
     alerts: [
       {
@@ -92,11 +94,16 @@ function seedState() {
     deletedAlerts: [],
     notify: {
       enabled: true,
+      configured: true,
       type: 'webhook',
       min_severity: 'critical',
       last_sent_at: NOW() - 240,
       last_error: null,
       sent_count: 3,
+      failed_count: 0,
+      pending: 0,
+      on_recovery: false,
+      last_payload_kind: 'new_alert',
       url: 'http://127.0.0.1:9000/webhook',
     },
     conversations: [
@@ -637,6 +644,46 @@ function w15RagReport() {
 }
 
 // --------------------------------------------------------------------------- //
+// W16：通知配置（飞书 Webhook）mock
+// --------------------------------------------------------------------------- //
+function maskWebhookUrl(value) {
+  const text = String(value || '').trim();
+  if (!text) return '';
+  if (text.includes('****') || text.includes('***')) return text;
+  try {
+    const parsed = new URL(text);
+    const segments = parsed.pathname.split('/').filter(Boolean);
+    const last = segments[segments.length - 1] || '';
+    const maskedTail = last.length > 6 ? `****${last.slice(-4)}` : '****';
+    const prefix = segments.slice(0, -1).join('/');
+    return `${parsed.origin}/${prefix ? `${prefix}/` : ''}${maskedTail}`;
+  } catch {
+    return text.length > 12 ? `${text.slice(0, 8)}****${text.slice(-4)}` : '****';
+  }
+}
+
+/** 对外返回的通知状态（webhook URL 已脱敏，符合 task-33 契约） */
+function notifyStatusPayload() {
+  const raw = state.notify;
+  return {
+    enabled: Boolean(raw.enabled),
+    configured: Boolean(raw.configured || raw.url),
+    type: raw.type,
+    min_severity: raw.min_severity,
+    webhook_url: maskWebhookUrl(raw.url),
+    dedup_seconds: 300,
+    retry_delays: [1, 3],
+    last_sent_at: raw.last_sent_at,
+    last_error: raw.last_error,
+    sent_count: raw.sent_count || 0,
+    failed_count: raw.failed_count || 0,
+    pending: raw.pending || 0,
+    on_recovery: Boolean(raw.on_recovery),
+    last_payload_kind: raw.last_payload_kind || null,
+  };
+}
+
+// --------------------------------------------------------------------------- //
 // Backend mock
 // --------------------------------------------------------------------------- //
 const backendServer = createServer(async (req, res) => {
@@ -824,19 +871,51 @@ const backendServer = createServer(async (req, res) => {
     json(res, 200, buildAlertGroups());
     return;
   }
+  // W16：通知设置（飞书 Webhook 配置）
+  if (path === '/__mock/notify_mode' && req.method === 'POST') {
+    const payload = await readBody(req);
+    state.notifyMode = payload.mode === 'config404' ? 'config404' : 'ok';
+    json(res, 200, { ok: true, mode: state.notifyMode });
+    return;
+  }
+  if (path === '/__mock/notify_raw' && req.method === 'GET') {
+    // 仅供 smoke 校验配置是否真正写入 mock（真实后端不会暴露明文）
+    json(res, 200, { ...state.notify });
+    return;
+  }
   if (path === '/api/notify/status') {
-    json(res, 200, state.notify);
+    json(res, 200, notifyStatusPayload());
+    return;
+  }
+  if (path === '/api/notify/config' && req.method === 'POST') {
+    if (state.notifyMode === 'config404') {
+      json(res, 404, { detail: 'Not Found（mock：/api/notify/config 未实现）' });
+      return;
+    }
+    const payload = await readBody(req);
+    if (typeof payload.enabled === 'boolean') state.notify.enabled = payload.enabled;
+    if (typeof payload.webhook_url === 'string' && payload.webhook_url.trim()) {
+      state.notify.url = payload.webhook_url.trim();
+      state.notify.configured = true;
+    }
+    if (typeof payload.webhook_type === 'string') state.notify.type = payload.webhook_type;
+    if (typeof payload.min_severity === 'string') state.notify.min_severity = payload.min_severity;
+    if (typeof payload.on_recovery === 'boolean') state.notify.on_recovery = payload.on_recovery;
+    state.notify.configured = Boolean(state.notify.configured || state.notify.url);
+    audit('notify_config', 'settings', `type=${state.notify.type} on_recovery=${Boolean(state.notify.on_recovery)}`);
+    json(res, 200, { ok: true, status: notifyStatusPayload() });
     return;
   }
   if (path === '/api/notify/test' && req.method === 'POST') {
     state.notify.sent_count += 1;
     state.notify.last_sent_at = NOW();
     state.notify.last_error = null;
+    state.notify.last_payload_kind = 'test';
     json(res, 200, {
       ok: true,
       sent: true,
       message: '测试通知已发送（webhook HTTP 200）',
-      status: state.notify,
+      status: notifyStatusPayload(),
     });
     return;
   }

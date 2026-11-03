@@ -22,7 +22,7 @@ import { API_BASE, DataClient } from './api/client.js';
 import { AGENT_BASE, AgentClient } from './api/agentClient.js';
 import { AdminClient } from './api/adminClient.js';
 import { buildAlertEntries, countActiveEntries } from './api/alertsView.js';
-import { normalizeSnapshot } from './api/normalize.js';
+import { normalizeSnapshot, normalizeNotifyStatus } from './api/normalize.js';
 import { demoBundle } from './api/mock.js';
 import { buildSceneItems, summarizeSceneItems } from './scene/items.js';
 import { fallbackSceneConfig } from './scene/sceneConfig.js';
@@ -32,6 +32,7 @@ import { AiPanel } from './ui/aiPanel.js';
 import { NewDevicesBanner } from './ui/newDevices.js';
 import { PathPanel } from './ui/pathPanel.js';
 import { ObservabilityPanel } from './ui/observability.js';
+import { NotifySettings } from './ui/notifySettings.js';
 import { confirmDialog } from './ui/dialog.js';
 
 /** 页面运行态（不含任何设备数据；设备数据只在 snapshot 里） */
@@ -61,6 +62,7 @@ let admin = null;
 let newDeviceBanner = null;
 let pathPanel = null;
 let obsPanel = null;
+let notifySettings = null;
 
 // --------------------------------------------------------------------------- //
 // 启动
@@ -82,9 +84,17 @@ function boot() {
     // W10：告警视图切换 / 通知测试
     onAlertViewChange: (view) => setAlertView(view),
     onNotifyTest: () => handleNotifyTest(),
+    // W16：通知设置对话框（飞书 Webhook 配置）
+    onNotifyConfig: () => openNotifySettings(),
   });
 
   admin = new AdminClient();
+  // W16：通知设置对话框（懒创建 DOM；配置接口 404 时优雅降级）
+  notifySettings = new NotifySettings(document, {
+    onSave: (payload) => handleNotifyConfigSave(payload),
+    onTest: () => handleNotifyDialogTest(),
+    onChange: () => updateDebugStats(),
+  });
   pathPanel = new PathPanel(document, {
     onTrace: (sourceIp, destIp) => handlePathTrace(sourceIp, destIp),
     onClear: () => handlePathClear(),
@@ -191,6 +201,9 @@ function boot() {
     },
     get obsPanel() {
       return obsPanel;
+    },
+    get notifySettings() {
+      return notifySettings;
     },
   };
 
@@ -679,6 +692,118 @@ async function handleNotifyTest() {
 }
 
 // --------------------------------------------------------------------------- //
+// W16：通知设置对话框（飞书 Webhook 配置）
+// --------------------------------------------------------------------------- //
+function applyNotifyStatus(status) {
+  if (!status) return;
+  if (state.snapshot) state.snapshot.notifyStatus = status;
+  state.notifyStatus = status;
+  hud.setNotifyStatus(status);
+}
+
+async function openNotifySettings() {
+  if (!notifySettings) return;
+  // 先用最新快照打开，再异步拉一次 status 保证数据新鲜（404 时保留快照并提示）
+  notifySettings.open(state.snapshot?.notifyStatus || state.notifyStatus || null);
+  if (!admin) return;
+  try {
+    const raw = await admin.notifyStatus();
+    const status = normalizeNotifyStatus(raw);
+    if (status) {
+      notifySettings.updateStatus(status, { syncForm: true });
+      applyNotifyStatus(status);
+    }
+  } catch (error) {
+    notifySettings.setHint(
+      error?.kind === 'unsupported'
+        ? '通知服务未就绪（GET /api/notify/status 不可用），仅可查看当前快照'
+        : `通知状态刷新失败：${error?.message || error}`,
+      'warn',
+    );
+  }
+}
+
+async function handleNotifyConfigSave(payload) {
+  if (!admin || !notifySettings) return;
+  notifySettings.setBusy(true, 'save');
+  try {
+    const result = await admin.notifyConfig(payload);
+    const savedStatus = normalizeNotifyStatus(result?.status || result);
+    notifySettings.clearWebhookInput();
+    if (savedStatus) {
+      notifySettings.updateStatus(savedStatus, { syncForm: true });
+      applyNotifyStatus(savedStatus);
+    }
+    notifySettings.setResult('配置已保存，正在发送测试通知…', 'info');
+    hud.toast('通知配置已保存');
+    // 「保存并测试」：保存成功后立即发一条测试消息（失败只提示，不回滚配置）
+    try {
+      const testResult = await admin.notifyTest();
+      const sent = testResult?.ok !== false && !testResult?.error;
+      const testStatus = normalizeNotifyStatus(testResult?.status);
+      if (testStatus) {
+        notifySettings.updateStatus(testStatus);
+        applyNotifyStatus(testStatus);
+      }
+      notifySettings.setResult(
+        sent ? '配置已保存，测试通知发送成功' : '配置已保存，但测试通知发送失败',
+        sent ? 'ok' : 'warn',
+      );
+      hud.toast(sent ? '配置已保存，测试通知已发送' : '配置已保存，测试通知发送失败', sent ? 'info' : 'error');
+    } catch (testError) {
+      const testMessage =
+        testError?.kind === 'unsupported'
+          ? '配置已保存，但测试通知接口未就绪'
+          : `配置已保存，但测试通知失败：${testError?.message || testError}`;
+      notifySettings.setResult(testMessage, 'warn');
+      hud.toast(testMessage, 'warn');
+    }
+    client?.refresh();
+  } catch (error) {
+    const unsupported = error?.kind === 'unsupported';
+    const message = unsupported
+      ? '通知配置接口未就绪（后端 POST /api/notify/config 未上线），配置未保存'
+      : `保存通知配置失败：${error?.message || error}`;
+    notifySettings.setResult(message, unsupported ? 'warn' : 'error');
+    hud.toast(message, unsupported ? 'warn' : 'error');
+    // URL 不进 console：错误提示中仅使用后端给的 message，不含请求体
+  } finally {
+    notifySettings.setBusy(false);
+    updateDebugStats();
+  }
+}
+
+async function handleNotifyDialogTest() {
+  if (!admin || !notifySettings) return;
+  notifySettings.setBusy(true, 'test');
+  try {
+    const result = await admin.notifyTest();
+    const sent = result?.ok !== false && !result?.error;
+    const status = normalizeNotifyStatus(result?.status);
+    if (status) {
+      notifySettings.updateStatus(status);
+      applyNotifyStatus(status);
+    }
+    notifySettings.setResult(
+      sent ? '测试通知发送成功' : '测试通知发送失败',
+      sent ? 'ok' : 'warn',
+    );
+    hud.toast(sent ? '测试通知已发送' : '测试通知发送失败', sent ? 'info' : 'error');
+    client?.refresh();
+  } catch (error) {
+    const unsupported = error?.kind === 'unsupported';
+    const message = unsupported
+      ? '通知服务未就绪（POST /api/notify/test 未上线）'
+      : `发送测试通知失败：${error?.message || error}`;
+    notifySettings.setResult(message, unsupported ? 'warn' : 'error');
+    hud.toast(message, unsupported ? 'warn' : 'error');
+  } finally {
+    notifySettings.setBusy(false);
+    updateDebugStats();
+  }
+}
+
+// --------------------------------------------------------------------------- //
 // W15-P2：可观测性数据加载（metrics / traces / RAG；接口 404 时返回错误由面板降级）
 // --------------------------------------------------------------------------- //
 async function loadObservabilityData({ filterCurrent = false, conversationId = null } = {}) {
@@ -719,6 +844,7 @@ function updateDebugStats() {
   const notify = state.snapshot?.notifyStatus || null;
   const streamDebug = aiPanel?.getStreamDebug?.() || null;
   const obsDebug = obsPanel?.getDebug?.() || null;
+  const notifySettingsDebug = notifySettings?.getDebug?.() || null;
   const groupSuppressed = Array.isArray(state.alertGroups)
     ? state.alertGroups.reduce(
         (sum, group) => sum + (Number(group.suppressed_count) || (group.members || []).filter((m) => m.suppressed_by).length),
@@ -799,6 +925,14 @@ function updateDebugStats() {
     notifyEnabled: Boolean(notify?.enabled),
     notifyType: notify?.type ?? null,
     notifySentCount: notify?.sentCount ?? null,
+    notifyFailedCount: notify?.failedCount ?? null,
+    notifyOnRecovery: Boolean(notify?.onRecovery),
+    notifyLastPayloadKind: notify?.lastPayloadKind ?? null,
+    // W16：通知设置对话框状态
+    notifyConfigOpen: Boolean(notifySettingsDebug?.open),
+    notifyConfigBusy: Boolean(notifySettingsDebug?.busy),
+    notifyConfigAvailable: Boolean(notifySettingsDebug?.available),
+    notifyConfigError: notifySettingsDebug?.error || '',
     selected: state.selectedKey,
     updatedAt: new Date().toISOString(),
   });

@@ -293,6 +293,20 @@ title_block(s, "15 · 可靠性 / 可观测性 / 可部署性（W15）", "故障
 picture_fit(s, SHOTS / "19-可靠性与可观测性.png", 0.6, 1.15, 12.1, 5.6)
 footer(s, 16)
 
+# ---------------- Slide W16-A: AI 对话框放大 ----------------
+s = new_slide()
+title_block(s, "16 · AI 对话框放大（W16）", "侧栏 404px → 1080px 浮层 · 字号 +1 · Esc 还原 · localStorage 记忆")
+picture_fit(s, SHOTS / "21-AI对话框放大.png", 0.6, 1.15, 12.1, 5.4)
+textbox(s, 0.6, 6.35, 12.1, 0.9, "· 长回答可一键放大到 1080px 浮层：消息字号 12→13px、行高 1.65、输入框 46→64px\n· Esc/再次点击还原；状态写 localStorage，刷新后保持；移动端 94vw", size=9.5, color=MUTED, line_spacing=1.2)
+footer(s, 17)
+
+# ---------------- Slide W16-B: 飞书告警通知 ----------------
+s = new_slide()
+title_block(s, "17 · 飞书告警通知（W16）", "富卡片告警/恢复 + 运行时配置 + 前端设置对话框 + 持久化")
+picture_fit(s, SHOTS / "22-飞书通知设置.png", 0.6, 1.15, 12.1, 5.4)
+textbox(s, 0.6, 6.35, 12.1, 0.9, "· 飞书群自定义机器人 Webhook：告警红色卡片 / 恢复绿色卡片（设备、规则、时间、详情、打开大屏按钮）\n· 运行时配置 POST /api/notify/config 无需重启；持久化 backend/data/notify_config.json（不入库、status 脱敏）", size=9.5, color=MUTED, line_spacing=1.2)
+footer(s, 18)
+
 # ---------------- Slide 15: 结尾 ----------------
 s = new_slide()
 textbox(s, 0.9, 1.0, 11.6, 0.6, "技术栈与核心数据", size=30, color=TEXT, bold=True)
@@ -303,7 +317,7 @@ textbox(s, 0.9, 5.55, 6.0, 1.3, "说明：截图均为真实运行；04/08/09 �
 textbox(s, 7.2, 2.35, 5.4, 0.35, "核心数据", size=15, color=GREEN, bold=True)
 data = [
     ("真实网络", "5 设备 / 6 主机 / 4 链路"),
-    ("测试", "171 + 277 + 30 tests"),
+    ("测试", "209 + 284 + 40 tests"),
     ("评测", "38 场景离线：根因/设备/动作 100%"),
     ("安全", "自动执行违规 0"),
     ("AI", "4 节点 + 8 role / 23 工具"),
@@ -316,7 +330,7 @@ for k, v in data:
     textbox(s, 8.65, y, 4.0, 0.3, v, size=11.5, color=TEXT, bold=True)
     y += 0.52
 textbox(s, 0.9, 6.6, 11.6, 0.3, "个人项目 · 独立开发 · 2026.10", size=11, color=MUTED)
-footer(s, 17)
+footer(s, 19)
 
 OUT_PPTX.parent.mkdir(parents=True, exist_ok=True)
 prs.save(OUT_PPTX)

@@ -84,6 +84,7 @@ export class Hud {
       notifyValue: byId('stat-notify-value'),
       notifySub: byId('stat-notify-sub'),
       notifyTest: byId('btn-notify-test'),
+      notifyConfig: byId('btn-notify-config'),
 
       detailBody: byId('detail-body'),
       detailClose: byId('btn-close-detail'),
@@ -147,6 +148,8 @@ export class Hud {
     }
     // W10：发送测试通知
     el.notifyTest?.addEventListener('click', () => handlers.onNotifyTest?.());
+    // W16：通知设置对话框（飞书 Webhook 配置）
+    el.notifyConfig?.addEventListener('click', () => handlers.onNotifyConfig?.());
     el.alertsList?.addEventListener('click', (event) => {
       // W10：点击分组卡片头部展开/收起成员（成员内按钮与告警行点击不受影响）
       const groupHead = event.target.closest('.alert-group-head');
@@ -741,6 +744,7 @@ export class Hud {
       this.el.notifySub &&
         (this.el.notifySub.textContent =
           `${typeLabel} · 已发送 ${status.sentCount || 0} 次` +
+          (status.onRecovery ? ' · 恢复通知' : '') +
           (status.lastError ? ' · 最近失败' : ''));
       stat.classList.add('enabled');
       stat.classList.remove('disabled');

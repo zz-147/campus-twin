@@ -52,6 +52,17 @@ _ALERT_GROUP_QUERY_WORDS = ("有哪些", "哪些", "多少", "几条", "概况",
 _NOTIFY_WORDS = ("通知", "webhook", "钉钉", "飞书", "企微", "告警推送", "告警通知")
 _RECON_WORDS = ("新设备", "发现新设备", "发现设备", "新接入", "新加的", "新上线",
                 "待确认的新设备", "pending", "加到场景", "加入场景", "加进场景")
+#: W15：场景设备删除（删除/移除/撤销 + 设备/场景/刚加…）
+_SCENE_DELETE_VERBS = ("删除", "删掉", "移除", "撤销", "去掉", "清掉", "清理", "清除")
+_SCENE_DELETE_SPECIFIC = (
+    "刚加", "刚才", "刚刚", "新加", "新增", "加的设备", "场景设备",
+    "场景里的设备", "3d场景", "设备删",
+)
+_SCENE_DELETE_DEVICE_NAME_RE = re.compile(
+    # 注意：不能用 \b —— Python 的 \w 含中文，"PC-JX3从场景..." 中 3 与 从 都是 word 字符，\b 不成立
+    r"(?<![A-Za-z0-9])(?:PC|SW|AP|SRV|RTR|NC)[A-Za-z0-9_-]*(?![A-Za-z0-9])",
+    re.IGNORECASE,
+)
 _ONBOARDING_STRONG = ("加设备", "新增设备", "接入一台", "接入交换机", "加一台", "新增一台",
                       "再加一台", "再接一台", "想加", "帮我加", "加个", "放一台", "放个",
                       "部署一台", "新装", "新接入", "新建一栋", "建一栋", "新建楼")
@@ -180,6 +191,24 @@ def _match_notify(text: str) -> Optional[Tuple[str, str, str]]:
     return None
 
 
+def _match_scene_delete(text: str) -> Optional[Tuple[str, str, str]]:
+    if not _contains_any(text, _SCENE_DELETE_VERBS):
+        return None
+    if _has_explanatory_marker(text):
+        return None
+    has_specific = _contains_any(text, _SCENE_DELETE_SPECIFIC)
+    has_device_name = bool(_SCENE_DELETE_DEVICE_NAME_RE.search(text))
+    # 复合句里“发现新设备/删除历史对话”不能误判为删除场景设备
+    has_other_objects = _contains_any(text, _ALERT_OBJECTS + _CONVERSATION_OBJECTS)
+    if has_other_objects and not has_specific and not has_device_name:
+        return None
+    if has_specific or has_device_name:
+        return "onboarding", "scene_delete", "remove_scene_device"
+    if "设备" in text:
+        return "onboarding", "scene_delete", "remove_scene_device"
+    return None
+
+
 def _match_recon(text: str) -> Optional[Tuple[str, str, str]]:
     if _contains_any(text, _RECON_WORDS):
         return "recon", "recon_keyword", None
@@ -234,6 +263,7 @@ _MATCHERS = (
     ("write_clear_alerts", _match_write_alerts),
     ("write_silence_alerts", _match_silence_alerts),
     ("write_conversations", _match_write_conversations),
+    ("scene_delete", _match_scene_delete),
     ("path", _match_path),
     ("alert_groups", _match_alert_groups),
     ("notify", _match_notify),
@@ -264,6 +294,7 @@ _OBJECTIVES = {
     "path_trace": "追踪源/目的主机之间的网络路径",
     "alert_groups": "查询告警根因分组与上游抑制情况",
     "notify": "查询告警通知（Webhook）状态",
+    "scene_delete": "解析场景设备并生成 remove_scene_device 确认卡片",
     "recon": "侦察新设备并推断归属（可加入场景）",
     "onboarding": "生成设备接入方案与场景操作",
     "scene": "生成 3D 场景布局建议",
