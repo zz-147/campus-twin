@@ -208,6 +208,7 @@ async def stream_chat(
         "trace": trace,
         "elapsed_ms": elapsed_ms,
         "conversation_id": outcome.conversation_id or conversation_id,
+        "artifacts": list(getattr(outcome, "artifacts", None) or []),
     }
 
 

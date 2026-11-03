@@ -30,10 +30,11 @@ import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import quote
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
@@ -46,6 +47,7 @@ from app.agent.actions import (
     ActionExecutor,
     ActionStore,
 )
+from app.agent.artifacts import ArtifactStore, markdown_to_text
 from app.agent.backend import BackendError, FixtureBackendClient, HttpBackendClient
 from app.agent.conversations import ConversationStore
 from app.agent.eval.fixture_data import (
@@ -116,6 +118,7 @@ class ChatResponse(BaseModel):
     elapsed_ms: float
     conversation_id: Optional[str] = None
     actions: List[Dict[str, Any]] = Field(default_factory=list)
+    artifacts: List[Dict[str, Any]] = Field(default_factory=list)
 
 
 class ConversationClearRequest(BaseModel):
@@ -159,9 +162,10 @@ def create_app(settings: Optional[AgentSettings] = None) -> FastAPI:
         # W15-P1：自建 trace 可观测性（SQLite trace_events，与 agent.db 同库）
         app.state.traces = TraceStore(config.db_path)
 
-        # 2) W9：会话 / action 存储 + 执行器
+        # 2) W9：会话 / action 存储 + 执行器 + W16 artifact 存储
         app.state.conversations = ConversationStore(config.db_path)
         app.state.actions = ActionStore(config.db_path, ttl_s=config.action_ttl_s)
+        app.state.artifacts = ArtifactStore(config.db_path)
         app.state.executor = ActionExecutor(app.state.backend, app.state.conversations)
 
         # 3) LLM provider（mock 永远可用；真实 provider 缺 key 时记录错误，服务本身仍启动）
@@ -180,6 +184,7 @@ def create_app(settings: Optional[AgentSettings] = None) -> FastAPI:
             conversations=app.state.conversations,
             actions=app.state.actions,
             executor=app.state.executor,
+            artifacts=app.state.artifacts,
         )
         app.state.orchestrator = app.state.engine  # 兼容旧引用（classic 时就是 Orchestrator）
         app.state.engine_name = getattr(app.state.engine, "engine_name", "classic")
@@ -294,6 +299,11 @@ def create_app(settings: Optional[AgentSettings] = None) -> FastAPI:
                     "/api/metrics/agent",
                     "/api/rag/report",
                 ],
+            },
+            "artifacts": {
+                "count": app.state.artifacts.count(),
+                "storage": str(app.state.artifacts.artifacts_dir),
+                "download": "/api/artifacts/{id}",
             },
             "conversations": conversations.count(),
             "pending_actions": actions.count("pending"),
@@ -416,6 +426,7 @@ def create_app(settings: Optional[AgentSettings] = None) -> FastAPI:
                     conversations=app.state.conversations,
                     actions=app.state.actions,
                     settings=config,
+                    artifacts=app.state.artifacts,
                 )
                 engine = temp_engine
 
@@ -484,6 +495,7 @@ def create_app(settings: Optional[AgentSettings] = None) -> FastAPI:
                     conversations=app.state.conversations,
                     actions=app.state.actions,
                     settings=config,
+                    artifacts=app.state.artifacts,
                 )
                 engine = temp_engine
 
@@ -615,6 +627,38 @@ def create_app(settings: Optional[AgentSettings] = None) -> FastAPI:
         except ActionError as exc:
             _raise_action_error(exc)
         return {"ok": True, "action": action}
+
+    # ------------------------------------------------------------------ #
+    # W16：配置文档 artifact 下载
+    # ------------------------------------------------------------------ #
+    @app.get("/api/artifacts/{artifact_id}", tags=["artifacts"])
+    def download_artifact(
+        artifact_id: str,
+        format: Optional[str] = Query(default=None, description="可选：txt 返回纯文本"),
+    ) -> Response:
+        store: ArtifactStore = app.state.artifacts
+        record = store.get(artifact_id)
+        content = store.content(artifact_id)
+        if record is None or content is None:
+            raise HTTPException(status_code=404, detail="artifact 不存在或文件已丢失")
+        filename = str(record.get("filename") or "artifact.md")
+        if format and format.lower() == "txt":
+            body = markdown_to_text(content)
+            media_type = "text/plain; charset=utf-8"
+            filename = filename.rsplit(".", 1)[0] + ".txt"
+        else:
+            body = content
+            media_type = "text/markdown; charset=utf-8"
+        encoded = quote(filename)
+        return Response(
+            content=body,
+            media_type=media_type,
+            headers={
+                "Content-Disposition": "attachment; filename*=UTF-8''%s" % encoded,
+                "X-Artifact-Id": artifact_id,
+                "X-Artifact-Kind": str(record.get("kind") or ""),
+            },
+        )
 
     # ------------------------------------------------------------------ #
     # W15-P1：可观测性（trace / metrics / RAG 报告）
@@ -829,6 +873,7 @@ def _build_engine(
     conversations: Any,
     actions: Any,
     executor: Any,
+    artifacts: Any = None,
 ) -> Tuple[Any, Optional[str]]:
     """按 AGENT_ENGINE 构造编排引擎；LangGraph 不可用时自动回退 classic。"""
     if config.engine == "langgraph":
@@ -842,6 +887,7 @@ def _build_engine(
                 actions=actions,
                 settings=config,
                 executor=executor,
+                artifacts=artifacts,
             )
             return engine, None
         except Exception as exc:  # noqa: BLE001 - 回退 classic，服务不中断
@@ -857,6 +903,7 @@ def _build_engine(
                     conversations=conversations,
                     actions=actions,
                     settings=config,
+                    artifacts=artifacts,
                 ),
                 error,
             )
@@ -867,6 +914,7 @@ def _build_engine(
             conversations=conversations,
             actions=actions,
             settings=config,
+            artifacts=artifacts,
         ),
         None,
     )

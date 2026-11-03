@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Sequence
 
 from app.agent.actions import ActionStore
+from app.agent.artifacts import ArtifactStore
 from app.agent.conversations import ConversationStore
 from app.agent.tools import OpsToolkit
 
@@ -23,6 +24,8 @@ class RoleContext:
     route: Optional[Dict[str, Any]] = None
     #: W15：动作存储（删除“刚加的设备”时解析最近一次 apply_scene_device）
     actions: Optional[ActionStore] = None
+    #: W16：配置文档 artifact 存储（onboarding 生成可下载文档）
+    artifacts: Optional[ArtifactStore] = None
 
     def call_tool(
         self, toolkit: OpsToolkit, name: str, arguments: Optional[Dict[str, Any]] = None

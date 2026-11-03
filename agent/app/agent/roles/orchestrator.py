@@ -63,6 +63,7 @@ class ChatOutcome:
     elapsed_ms: float
     conversation_id: Optional[str] = None
     actions: List[Dict[str, Any]] = field(default_factory=list)
+    artifacts: List[Dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -73,6 +74,7 @@ class ChatOutcome:
             "elapsed_ms": self.elapsed_ms,
             "conversation_id": self.conversation_id,
             "actions": self.actions,
+            "artifacts": self.artifacts,
         }
 
 
@@ -301,12 +303,14 @@ class Orchestrator:
         conversations: ConversationStore,
         actions: ActionStore,
         settings: AgentSettings,
+        artifacts: Optional[Any] = None,
     ) -> None:
         self._provider = provider
         self._toolkit = toolkit
         self._conversations = conversations
         self._actions = actions
         self._settings = settings
+        self._artifacts = artifacts
         self._roles = {
             "onboarding": OnboardingRole(toolkit, conversations),
             "scene": SceneRole(toolkit, conversations),
@@ -370,6 +374,7 @@ class Orchestrator:
         if not question:
             raise ValueError("问题不能为空")
         started = time.perf_counter()
+        turn_started_at = time.time()
 
         # ---- 会话 ----
         history: List[Dict[str, str]] = []
@@ -405,6 +410,7 @@ class Orchestrator:
             elapsed_ms=elapsed_ms,
             conversation_id=conversation_id,
             actions=actions,
+            artifacts=self._turn_artifacts(conversation_id, turn_started_at),
         )
 
         # ---- 落库 assistant 消息 ----
@@ -457,6 +463,7 @@ class Orchestrator:
                 history=list(history),
                 route=route,
                 actions=self._actions,
+                artifacts=self._artifacts,
             )
             if subtask.role == "diagnosis":
                 result = self._run_diagnosis(question, history, ctx)
@@ -1115,6 +1122,17 @@ class Orchestrator:
     # ------------------------------------------------------------------ #
     # 汇总
     # ------------------------------------------------------------------ #
+    def _turn_artifacts(
+        self, conversation_id: Optional[str], since_ts: float
+    ) -> List[Dict[str, Any]]:
+        """取本轮（since_ts 之后）生成的 artifact descriptor；无 store 返回 []。"""
+        if self._artifacts is None:
+            return []
+        try:
+            return self._artifacts.list_since(conversation_id, since_ts, limit=10)
+        except Exception:  # noqa: BLE001 - artifact 查询失败不影响回答
+            return []
+
     def _materialize_actions(
         self, results: List[RoleResult], conversation_id: str
     ) -> List[Dict[str, Any]]:

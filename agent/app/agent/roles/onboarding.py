@@ -9,8 +9,10 @@
 from __future__ import annotations
 
 import re
+from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
+from app.agent.artifacts import ARTIFACT_KIND_DEVICE_CONFIG, build_device_config_markdown
 from app.agent.inference import find_building
 from app.agent.knowledge import (
     BUILDING_PROFILES,
@@ -262,6 +264,58 @@ class OnboardingRole(BaseRole):
             "placement": placement,
             "actions": [action.to_dict() for action in actions],
         }
+        if ctx.artifacts is not None:
+            try:
+                filename = "%s_接入配置_%s.md" % (
+                    hostname,
+                    datetime.now().strftime("%Y%m%d-%H%M"),
+                )
+                content = build_device_config_markdown(
+                    hostname=hostname,
+                    device_label=str(spec.get("label") or kind),
+                    device_model=str(spec.get("model") or ""),
+                    device_kind=str(spec.get("kind") or ""),
+                    building_name=building_name,
+                    building_id=building_id,
+                    mgmt_ip=mgmt_ip,
+                    vlan=vlan,
+                    gateway=gateway,
+                    uplink=uplink,
+                    cabling=cabling,
+                    cli=cli,
+                    verification=verification,
+                    undo=undo,
+                    scene_type=scene_type,
+                    position=placement.get("position"),
+                    new_building=new_building,
+                )
+                descriptor = ctx.artifacts.save(
+                    ctx.conversation_id,
+                    kind=ARTIFACT_KIND_DEVICE_CONFIG,
+                    title="%s 接入配置文档" % hostname,
+                    filename=filename,
+                    content=content,
+                )
+                data["artifacts"] = [descriptor]
+                lines.extend(
+                    [
+                        "",
+                        "## 配置文档",
+                        "- 已生成可下载文档 **%s**（设备信息 / 端口连线 / 完整 CLI / 验证 / 撤销 / 注意事项）。"
+                        % descriptor["filename"],
+                        "- 可在回复附件中下载，或调用 `GET /api/artifacts/%s` 获取。" % descriptor["id"],
+                    ]
+                )
+            except Exception as exc:  # noqa: BLE001 - artifact 失败不影响接入方案
+                data["artifact_error"] = "%s: %s" % (type(exc).__name__, exc)
+                lines.extend(
+                    [
+                        "",
+                        "## 配置文档",
+                        "- 配置文档生成失败（%s），本次仍可复制上面的 CLI 使用。"
+                        % type(exc).__name__,
+                    ]
+                )
         return self._finish(ctx, started, "\n".join(lines), actions=actions, data=data)
 
     # ------------------------------------------------------------------ #

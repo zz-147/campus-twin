@@ -121,10 +121,12 @@ def test_chat_diagnosis_returns_chinese_answer(client: TestClient) -> None:
         "elapsed_ms",
         "conversation_id",
         "actions",
+        "artifacts",
     }
     assert body["provider"] == "mock"
     assert body["conversation_id"].startswith("conv_")
     assert body["actions"] == []
+    assert body["artifacts"] == []
     assert "## 根因" in body["answer"]
     assert "PC-JX1" in body["answer"]
     assert body["trace"]["mode"] == "multi_agent"

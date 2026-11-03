@@ -1098,6 +1098,218 @@ async function runLiveStreamingChecks(cdp) {
 }
 
 /**
+ * W17 冒烟（契约 Mock）：配置文档 artifact 下载 + CLI 代码块一键复制 + 历史会话恢复。
+ */
+async function runArtifactChecks(cdp) {
+  const agent = W9_AGENT;
+  const setArtifactMode = (mode) =>
+    fetch(`${agent}/__mock/artifact_mode`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode }),
+    });
+  const downloads = async () => {
+    const response = await fetch(`${agent}/__mock/artifact_downloads`);
+    return response.ok ? (await response.json()).count : -1;
+  };
+  log('');
+  log('—— W17：配置文档 artifact 下载 + CLI 代码块复制（契约 Mock）——');
+  await setArtifactMode('ok');
+  await cdp.evaluate(`document.getElementById('tab-ai').click()`);
+  await sleep(300);
+  // 提问「宿舍楼加 2960」→ mock 返回 2 个 artifact + cisco 代码块
+  await cdp.evaluate(`(() => {
+    const input = document.getElementById('ai-input');
+    input.value = '我想在宿舍楼加一台 2960 接入交换机';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    document.getElementById('ai-form').dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+  })()`);
+  await cdp.waitFor(
+    `document.querySelectorAll('.ai-artifacts .ai-artifact-btn').length >= 2`,
+    40000,
+    'AI 回答未渲染配置文档下载按钮',
+  );
+  await sleep(800);
+  const answer = await cdp.evaluate(`(() => {
+    const last = document.querySelector('.ai-msg:last-child');
+    const artifacts = last?.querySelector('.ai-artifacts');
+    return {
+      artifactButtons: [...(artifacts?.querySelectorAll('.ai-artifact-btn') || [])].map((button) => ({
+        text: button.textContent.replace(/[\\s]+/g, ' ').trim(),
+        id: button.dataset.artifactId,
+        filename: button.dataset.artifactFilename,
+        size: button.querySelector('.ai-artifact-size')?.textContent || '',
+        visible: Boolean(button.offsetParent),
+      })),
+      copyButtons: last?.querySelectorAll('.md-code-wrap .md-copy-btn').length || 0,
+      codeBlocks: [...(last?.querySelectorAll('.md-code-wrap pre code') || [])].map((code) => ({
+        language: code.className,
+        snippet: code.textContent.slice(0, 30),
+      })),
+      runtimeError: document.getElementById('runtime-error')?.textContent || '',
+    };
+  })()`);
+  log(`artifact=${JSON.stringify(answer.artifactButtons)} / copyButtons=${answer.copyButtons}`);
+  check(
+    answer.artifactButtons.length >= 2,
+    `AI 回答渲染 ${answer.artifactButtons.length} 个「下载配置文档」按钮`,
+    `下载按钮数量异常：${JSON.stringify(answer.artifactButtons)}`,
+  );
+  check(
+    answer.artifactButtons.every((item) => item.text.includes('下载配置文档') && item.visible),
+    '下载按钮文案为「📄 下载配置文档：filename」且可见',
+    `下载按钮文案异常：${JSON.stringify(answer.artifactButtons)}`,
+  );
+  check(
+    answer.artifactButtons.some((item) => item.filename === 'SW-SS-2961-config.md') &&
+      answer.artifactButtons.some((item) => item.filename === 'SW-SS-2961-rollback.txt'),
+    '下载按钮包含 2 个 artifact 文件名',
+    `文件名异常：${JSON.stringify(answer.artifactButtons)}`,
+  );
+  check(
+    answer.copyButtons >= 1 && answer.codeBlocks.some((code) => code.language.includes('language-cisco')),
+    `Markdown cisco 代码块渲染 ${answer.copyButtons} 个复制按钮`,
+    `代码块复制按钮异常：${JSON.stringify(answer.codeBlocks)}`,
+  );
+
+  // 1) 点击下载 → mock 收到请求 + toast 成功
+  const downloadsBefore = await downloads();
+  await cdp.evaluate(`document.querySelector('.ai-artifacts .ai-artifact-btn').click()`);
+  await cdp.waitFor(
+    `(document.getElementById('toast')?.textContent || '').includes('已开始下载')`,
+    15000,
+    '点击配置文档下载未出现成功 toast',
+  );
+  await sleep(800);
+  const downloadsAfter = await downloads();
+  const downloadUi = await cdp.evaluate(`({
+    toast: document.getElementById('toast')?.textContent || '',
+    buttonText: document.querySelector('.ai-artifacts .ai-artifact-btn')?.textContent.replace(/[\\s]+/g, ' ').trim() || '',
+    disabled: Boolean(document.querySelector('.ai-artifacts .ai-artifact-btn')?.disabled),
+  })`);
+  check(
+    downloadsAfter > downloadsBefore,
+    `点击下载触发 GET /api/artifacts/{id}（mock 下载计数 ${downloadsBefore} → ${downloadsAfter}）`,
+    `下载请求未触发：${downloadsBefore} → ${downloadsAfter}`,
+  );
+  check(
+    downloadUi.toast.includes('已开始下载') && !downloadUi.disabled,
+    `下载后提示「已开始下载」且按钮恢复可用（${downloadUi.buttonText}）`,
+    `下载按钮状态异常：${JSON.stringify(downloadUi)}`,
+  );
+
+  // 2) 复制主路径（headless 无剪贴板权限，stub navigator.clipboard 记录文本）
+  await cdp.evaluate(`(() => {
+    window.__copiedText = '';
+    if (!navigator.clipboard) Object.defineProperty(navigator, 'clipboard', { value: {}, configurable: true });
+    navigator.clipboard.writeText = async (text) => { window.__copiedText = text; };
+  })()`);
+  await cdp.evaluate(`document.querySelector('.ai-msg:last-child .md-copy-btn').click()`);
+  await cdp.waitFor(
+    `(document.getElementById('toast')?.textContent || '').includes('已复制')`,
+    8000,
+    '点击复制未出现「已复制」toast',
+  );
+  await sleep(300);
+  const copyPrimary = await cdp.evaluate(`({
+    toast: document.getElementById('toast')?.textContent || '',
+    buttonText: document.querySelector('.ai-msg:last-child .md-copy-btn')?.textContent || '',
+    copiedLen: (window.__copiedText || '').length,
+    copiedHasCli: (window.__copiedText || '').includes('configure terminal'),
+  })`);
+  check(
+    copyPrimary.toast.includes('已复制') &&
+      copyPrimary.buttonText.includes('已复制') &&
+      copyPrimary.copiedHasCli,
+    `复制按钮成功复制 CLI（${copyPrimary.copiedLen} 字符，含 configure terminal）`,
+    `复制异常：${JSON.stringify(copyPrimary)}`,
+  );
+
+  // 3) clipboard 不可用时的 textarea fallback
+  await cdp.evaluate(`(() => {
+    window.__execCalled = false;
+    navigator.clipboard.writeText = async () => { throw new Error('clipboard not allowed'); };
+    const button = document.querySelector('.ai-msg:last-child .md-copy-btn');
+    if (button) { button.textContent = '复制'; button.classList.remove('copied'); button.disabled = false; }
+    const originalExec = document.execCommand.bind(document);
+    document.execCommand = () => { window.__execCalled = true; return true; };
+    window.__restoreExec = () => { document.execCommand = originalExec; };
+  })()`);
+  await cdp.evaluate(`document.querySelector('.ai-msg:last-child .md-copy-btn').click()`);
+  await cdp.waitFor(
+    `(document.getElementById('toast')?.textContent || '').includes('已复制')`,
+    8000,
+    '剪贴板不可用时 fallback 复制失败',
+  );
+  await sleep(300);
+  const copyFallback = await cdp.evaluate(`({
+    toast: document.getElementById('toast')?.textContent || '',
+    execCalled: window.__execCalled,
+    runtimeError: document.getElementById('runtime-error')?.textContent || '',
+  })`);
+  await cdp.evaluate(`window.__restoreExec?.()`);
+  check(
+    copyFallback.toast.includes('已复制') && copyFallback.execCalled === true,
+    'navigator.clipboard 不可用时回退 textarea + execCommand 并提示已复制',
+    `fallback 复制异常：${JSON.stringify(copyFallback)}`,
+  );
+  check(copyFallback.runtimeError === '', '复制/下载过程无运行时错误', `运行时错误：${copyFallback.runtimeError}`);
+
+  // 截图：代码块复制按钮 + 两个下载按钮同屏
+  await cdp.evaluate(`(() => {
+    const artifacts = document.querySelector('.ai-msg:last-child .ai-artifacts');
+    artifacts?.scrollIntoView({ block: 'end' });
+  })()`);
+  await sleep(400);
+  const artifactShot = await cdp.screenshot(join(DOCS_DIR, 'device-config-artifact.png'));
+  log(`配置文档 artifact 截图：${artifactShot}`);
+
+  // 4) 下载失败兜底：artifact 接口 404 → toast 错误且不产生运行时错误
+  await setArtifactMode('404');
+  await sleep(200);
+  await cdp.evaluate(`document.querySelectorAll('.ai-artifacts .ai-artifact-btn')[1].click()`);
+  await cdp.waitFor(
+    `(document.getElementById('toast')?.textContent || '').includes('下载配置文档失败')`,
+    15000,
+    'artifact 404 时未提示下载失败',
+  );
+  await sleep(400);
+  const failed = await cdp.evaluate(`({
+    toast: document.getElementById('toast')?.textContent || '',
+    runtimeError: document.getElementById('runtime-error')?.textContent || '',
+  })`);
+  await setArtifactMode('ok');
+  check(
+    failed.toast.includes('下载配置文档失败') && failed.runtimeError === '',
+    `artifact 接口 404 时 toast 下载失败且无运行时错误（${failed.toast.slice(0, 40)}）`,
+    `下载失败兜底异常：${JSON.stringify(failed)}`,
+  );
+
+  // 5) 历史会话重载后按钮仍可用（artifacts 从消息 meta 恢复）
+  await cdp.evaluate(`document.getElementById('ai-history').click()`);
+  await sleep(1200);
+  await cdp.evaluate(`document.querySelectorAll('.ai-history-item')[0]?.click()`);
+  await cdp.waitFor(
+    `document.querySelectorAll('#ai-messages .ai-msg-history .ai-artifacts .ai-artifact-btn').length >= 2`,
+    12000,
+    '历史会话重载后未恢复配置文档按钮',
+  );
+  await sleep(500);
+  const history = await cdp.evaluate(`({
+    historyMessages: document.querySelectorAll('#ai-messages .ai-msg-history').length,
+    artifactButtons: document.querySelectorAll('#ai-messages .ai-msg-history .ai-artifacts .ai-artifact-btn').length,
+    copyButtons: document.querySelectorAll('#ai-messages .ai-msg-history .md-code-wrap .md-copy-btn').length,
+    runtimeError: document.getElementById('runtime-error')?.textContent || '',
+  })`);
+  check(
+    history.artifactButtons >= 2 && history.copyButtons >= 1,
+    `历史会话重载后恢复 ${history.artifactButtons} 个下载按钮 + ${history.copyButtons} 个复制按钮`,
+    `历史会话恢复异常：${JSON.stringify(history)}`,
+  );
+  check(history.runtimeError === '', '历史会话重载无运行时错误', `历史会话运行时错误：${history.runtimeError}`);
+}
+
+/**
  * W15 冒烟（契约 Mock）：可观测性页签 —— 指标卡 / trace 列表与展开 / RAG 评测卡 / 按会话过滤 / 404 降级。
  */
 async function runW15Checks(cdp) {
@@ -2854,6 +3066,9 @@ async function runW9Checks(cdp) {
   // W12：AI 流式渲染（SSE）+ RAG 引用 + 回退
   await runW12Checks(cdp);
 
+  // W17：配置文档 artifact 下载 + CLI 代码块复制
+  await runArtifactChecks(cdp);
+
   // W15：可观测性页签（metrics / traces / RAG 评测）
   await runW15Checks(cdp);
 
@@ -3192,7 +3407,7 @@ async function main() {
       demo: '离线提示、演示数据开关、告警脉冲与演示水印全部通过。',
       'ai-offline': '「AI 服务未连接」降级提示正确，3D 大屏与实时数据不受影响。',
       live: '页面加载、4 楼/设备渲染、W3 实时数据增强、W7.1 stale_source 语义、W9 配置驱动场景/告警管理 UI、W9.1 新 trace 结构（plan/工具序列）、live action 卡片（场景新增设备取消 + 危险操作取消，数据未变更）、W10 路径追踪/根因分组/通知状态（就绪则联调、未就绪则降级提示）、W12 流式接口未就绪时自动回退非流式并提示、W15 可观测性页签（就绪则联调指标/trace/RAG、未就绪则优雅降级）、W16 通知设置对话框（真实 status 回填/URL 脱敏/无报错；保存配置等 task-33）、点击聚焦、AI 真实问答与 trace 全部通过。',
-      w9: '配置驱动动态场景（新增楼栋/pending 设备/自动高亮）、新设备确认撤销、告警删除/静默/清空/撤销、历史会话、Agent action 卡片、W10 路径追踪 3D（完整/断点/清除）、告警根因分组（抑制成员灰显 + 操作保留）、通知状态/测试、W12 SSE 流式渲染/事件顺序/token 拼接/停止生成/RAG 引用/404 回退、W15 可观测性页签（指标卡/trace 列表展开/会话过滤/RAG 评测卡/404 降级）、W16 通知设置对话框（回填/保存并测试/仅测试/URL 脱敏不回显/404 降级）全部通过。',
+      w9: '配置驱动动态场景（新增楼栋/pending 设备/自动高亮）、新设备确认撤销、告警删除/静默/清空/撤销、历史会话、Agent action 卡片、W10 路径追踪 3D（完整/断点/清除）、告警根因分组（抑制成员灰显 + 操作保留）、通知状态/测试、W12 SSE 流式渲染/事件顺序/token 拼接/停止生成/RAG 引用/404 回退、W17 配置文档 artifact 下载（2 个按钮/点击下载/404 失败兜底）+ CLI 代码块复制（主路径/fallback/历史会话恢复）、W15 可观测性页签（指标卡/trace 列表展开/会话过滤/RAG 评测卡/404 降级）、W16 通知设置对话框（回填/保存并测试/仅测试/URL 脱敏不回显/404 降级）全部通过。',
     };
     log(`结果：PASS —— ${passMessages[MODE] || '全部检查通过。'}`);
   } else {

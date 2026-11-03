@@ -100,15 +100,19 @@ class LangGraphEngine:
         settings: AgentSettings,
         executor: Optional[ActionExecutor] = None,
         graph_db_path: Optional[Path] = None,
+        artifacts: Optional[Any] = None,
     ) -> None:
         self._provider = provider
         self._toolkit = toolkit
         self._conversations = conversations
         self._actions = actions
         self._settings = settings
+        self._artifacts = artifacts
         self._executor = executor or ActionExecutor(toolkit.backend, conversations)
         # 复用 classic 的意图规划 / W10 只读实现 / 汇总润色，保证两引擎行为一致
-        self._delegate = Orchestrator(provider, toolkit, conversations, actions, settings)
+        self._delegate = Orchestrator(
+            provider, toolkit, conversations, actions, settings, artifacts=artifacts
+        )
         self._lc_tools = build_diagnosis_tools(toolkit)
         provider_info = provider.info() if provider is not None else None
         try:
@@ -216,6 +220,7 @@ class LangGraphEngine:
                 history=history,
                 route=route,
                 actions=self._actions,
+                artifacts=self._artifacts,
             )
             try:
                 result = self._run_role(role, question, history, ctx)
@@ -646,6 +651,7 @@ class LangGraphEngine:
         if not question:
             raise ValueError("问题不能为空")
         started = time.perf_counter()
+        turn_started_at = time.time()
 
         history: List[Dict[str, str]] = []
         if conversation_id:
@@ -691,6 +697,7 @@ class LangGraphEngine:
                     pending_actions=pending,
                     elapsed_ms=elapsed_ms,
                 )
+                outcome.artifacts = self._turn_artifacts(conversation_id, turn_started_at)
                 self._persist_assistant_message(conversation_id, outcome)
                 return outcome
 
@@ -742,6 +749,7 @@ class LangGraphEngine:
                 pending_actions=pending,
                 elapsed_ms=elapsed_ms,
             )
+            outcome.artifacts = self._turn_artifacts(conversation_id, turn_started_at)
             self._persist_assistant_message(conversation_id, outcome)
             return outcome
 
@@ -836,6 +844,16 @@ class LangGraphEngine:
     # ------------------------------------------------------------------ #
     # 内部：结果构造 / trace / 持久化
     # ------------------------------------------------------------------ #
+    def _turn_artifacts(
+        self, conversation_id: Optional[str], since_ts: float
+    ) -> List[Dict[str, Any]]:
+        if self._artifacts is None:
+            return []
+        try:
+            return self._artifacts.list_since(conversation_id, since_ts, limit=10)
+        except Exception:  # noqa: BLE001 - artifact 查询失败不影响回答
+            return []
+
     def _build_outcome(
         self,
         answer: str,

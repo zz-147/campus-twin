@@ -75,10 +75,11 @@ export function renderMarkdown(source) {
         index += 1;
       }
       if (index < lines.length) index += 1; // 跳过收尾 ```
+      // W17：代码块右上角「复制」按钮（cisco/bash 等 CLI 一键复制；内容已转义，安全）
       html.push(
-        `<pre class="md-code"><code${
+        `<div class="md-code-wrap"><button type="button" class="md-copy-btn" title="复制代码" aria-label="复制代码">复制</button><pre class="md-code"><code${
           language ? ` class="language-${escapeHtml(language)}"` : ''
-        }>${escapeHtml(buffer.join('\n'))}</code></pre>`,
+        }>${escapeHtml(buffer.join('\n'))}</code></pre></div>`,
       );
       continue;
     }

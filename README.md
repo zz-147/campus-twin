@@ -142,7 +142,7 @@ docker compose down
 |---|---|
 | RAG 语料 | 56 篇文档 → **107 chunk**（3 种 chunking：fixed 94 / section 107 / semantic 123） |
 | RAG 评测 | 48 query（6 类），最佳 semantic：BM25 recall@5 1.0 / hybrid MRR **0.877** / hybrid+rerank faithfulness **0.660** / 可溯源 1.000 |
-| Agent 可靠性 | 285 tests；重试 2 次（1s/3s）、熔断 5 次/60s、幂等缓存、脏数据归一化；写操作自动执行违规 0 |
+| Agent 可靠性 | 291 tests；重试 2 次（1s/3s）、熔断 5 次/60s、幂等缓存、脏数据归一化；写操作自动执行违规 0 |
 | 断点恢复 | 图在 interrupt 暂停 → 进程退出 → 同 conversation_id 恢复 → 确认执行（不同 PID，总 4308ms） |
 | 可观测性 | `trace_events` 表 + `/api/traces`、`/api/traces/{id}`、`/api/metrics/agent`、`/api/rag/report`；前端「可观测性」页签 |
 | 部署/CI | WSL2 Docker 28.1.1 + Compose v2.35.1：`compose config` PASS、hello-world 运行成功；**GitHub Actions 6 job 全绿** |
@@ -157,7 +157,8 @@ docker compose down
 | 场景设备删除 | Agent 新增 `scene_delete` 意图（删除/移除/撤销 + 设备/场景/刚加）：查场景 → 用最近一次 `apply_scene_device` 动作记录解析「刚加的设备」→ 生成 `remove_scene_device` 危险确认卡片（确认后执行）；解析不到时列候选、不瞎删 |
 | AI 对话框放大 | 侧栏「⛶ 放大」→ 404px → 1080px 浮层、消息字号 +1、行高 1.65；Esc/再点还原；localStorage 记忆；移动端 94vw |
 | 飞书通知升级 | 富卡片（critical 红 / warning 橙 / info 蓝 / 恢复绿，含字段区/备注/可选「打开 3D 大屏」按钮）；恢复通知（`NOTIFY_ON_RECOVERY`，含 clear_reason，批量合并防刷屏）；`POST /api/notify/config` 运行时配置 + 持久化（`backend/data/notify_config.json`，不入库）；前端「告警通知」齿轮设置对话框（回填/保存并测试/仅测试/404 降级） |
-| 测试 | 后端 **209 tests**、Agent **285 tests**、MCP 40、前端构建 29 modules（gzip JS 201.51 kB）；38 场景评测 100%、动作 15/15、自动执行违规 0 |
+| 设备配置文档（W17） | 加设备时自动生成 Markdown 配置文档（设备信息/端口连线表/完整 Cisco IOS CLI/验证命令/撤销命令；PC 给 PT GUI 步骤）；`GET /api/artifacts/{id}` 下载 .md/.txt（RFC5987 文件名、404 处理）；前端「📄 下载配置文档」按钮 + CLI 代码块「复制」；历史会话可恢复 |
+| 测试 | 后端 **209 tests**、Agent **291 tests**、MCP 40、前端构建 29 modules（gzip JS 201.51 kB）；38 场景评测 100%、动作 15/15、自动执行违规 0 |
 | 实测 | 真实飞书群收到红/绿卡片（status 返回 masked URL、sent/failed 计数）；PT 故障注入 5 秒内出告警；设备添加 → PC-JX4 → 说「删掉刚加的」→ 确认卡片 → 删除成功 |
 
 飞书接入步骤见 [docs/飞书接入说明.md](docs/飞书接入说明.md)。
@@ -169,7 +170,7 @@ campus-twin/
 ├─ .github/workflows/ci.yml  GitHub Actions 6 job 离线 CI（backend/agent/mcp/feishu/frontend）
 ├─ docker-compose.yml  Docker Compose 一键启动（4 服务，⚠️ 本机未实测）
 ├─ backend/          采集+检测服务（FastAPI :8000，209 tests）
-├─ agent/            AI 运维 Agent（FastAPI :8100，285 tests，38 场景评测）
+├─ agent/            AI 运维 Agent（FastAPI :8100，291 tests，38 场景评测）
 ├─ mcp_server/       对外 MCP Server（stdio，10 tools/4 resources/3 prompts）
 ├─ mcp_bridge/       MCP Client 桥（filesystem/memory → Agent，:8200）
 ├─ feishu-bot/      飞书机器人（长连接双向接入，Node.js，无需公网）
@@ -219,5 +220,6 @@ campus-twin/
 | **W12 SSE 流式 + 轻量 RAG** | ✅ `/api/chat/stream` 逐 token SSE（真实 LLM 2600+ token 事件）+ 前端逐字渲染/停止生成；18 知识块 BM25-lite 检索 + `[K1]` 引用 + 无命中不编造（Agent 207 tests，38 场景 100%） |
 | **W13 MCP 双向集成** | ✅ 自建 **MCP Server**（10 tools / 4 resources / 3 prompts，Claude Desktop/Cursor 可接入）+ **MCP Client 桥接**（filesystem/memory 23 工具 → Agent）；285 Agent tests，只读白名单 + 审计 |
 | **W14 飞书机器人** | ✅ 长连接双向接入：飞书群里「状态 / 告警 / 路径 / 读配置 / 任意问答」；白名单 + 限流 + 去重 + 写操作只提示不执行；19 项离线自测通过 |
-| **W15 评测/可靠性/可观测性/部署** | ✅ RAG 评测闭环（107 chunks / 48 query / 4 配置：recall@5 1.0、MRR 0.877、引用准确率 0.333、faithfulness 0.660）；Agent 285 tests + 故障注入（重试/熔断/幂等/脏数据）+ 断点恢复；trace_events + 4 个 API；Docker Compose 真实校验 + GitHub Actions 6 job 全绿 |
+| **W15 评测/可靠性/可观测性/部署** | ✅ RAG 评测闭环（107 chunks / 48 query / 4 配置：recall@5 1.0、MRR 0.877、引用准确率 0.333、faithfulness 0.660）；Agent 291 tests + 故障注入（重试/熔断/幂等/脏数据）+ 断点恢复；trace_events + 4 个 API；Docker Compose 真实校验 + GitHub Actions 6 job 全绿 |
 | **W15 P2 可部署性 / CI / 架构图** | ✅ 4 个 Dockerfile + `docker-compose.yml`（8000/8100/5173/8200，healthcheck + depends_on）+ 6 job 离线 Actions CI + README Mermaid 架构图；⚠️ 本机无 Docker，Compose/CI 仅静态校验（部署说明见 docs/部署与CI.md） |
+| **W17 设备配置文档** | ✅ 加设备自动生成配置文档（Markdown/TXT）+ `GET /api/artifacts/{id}` 下载 + 前端下载按钮/CLI 一键复制（Agent 291 tests，live 联调通过） |

@@ -73,6 +73,29 @@ export function extractCitations(payload = {}, trace = {}) {
     .filter((hit) => hit.id && (hit.title || hit.snippet || hit.source));
 }
 
+/**
+ * W17：规范化 Agent 配置文档 artifact（POST /api/chat 与 SSE done 事件新增 artifacts[]）
+ * @param {Array} rawList
+ * @returns {Array<{id:string,kind:string,title:string,filename:string,size:number|null}>}
+ */
+export function normalizeArtifacts(rawList) {
+  return (Array.isArray(rawList) ? rawList : [])
+    .map((item, index) => {
+      if (!item || typeof item !== 'object') return null;
+      const id = String(item.id || '').trim();
+      if (!id) return null;
+      const size = Number(item.size);
+      return {
+        id,
+        kind: String(item.kind || 'file'),
+        title: String(item.title || item.filename || '配置文档'),
+        filename: String(item.filename || `artifact-${index + 1}.txt`),
+        size: Number.isFinite(size) ? size : null,
+      };
+    })
+    .filter(Boolean);
+}
+
 export class AgentClient {
   constructor({ baseUrl = AGENT_BASE, timeoutMs = AGENT_TIMEOUT_MS } = {}) {
     this.baseUrl = String(baseUrl || AGENT_BASE).replace(/\/+$/, '');
@@ -145,6 +168,8 @@ export class AgentClient {
         actions: Array.isArray(data.actions) ? data.actions : [],
         // W12：非流式回退时同样展示 RAG 引用
         citations: extractCitations(data, data.trace),
+        // W17：配置文档 artifact（task-35，无则 []）
+        artifacts: normalizeArtifacts(data.artifacts),
       };
     } catch (error) {
       if (error instanceof AgentError) throw error;
@@ -326,6 +351,8 @@ export class AgentClient {
             ? doneEvent.actions
             : streamActions,
         citations: extractCitations(doneEvent, trace),
+        // W17：流式 done 事件里的配置文档 artifact
+        artifacts: normalizeArtifacts(doneEvent.artifacts),
         events,
         streaming: true,
       };
@@ -470,5 +497,53 @@ export class AgentClient {
 
   async ragReport(timeoutMs = 8000) {
     return this._request('/api/rag/report', { timeoutMs });
+  }
+
+  // ------------------------------------------------------------------ //
+  // W17：配置文档 artifact 下载（task-35）
+  // ------------------------------------------------------------------ //
+  artifactUrl(id, { format = null } = {}) {
+    const base = `${this.baseUrl}/api/artifacts/${encodeURIComponent(id)}`;
+    return format ? `${base}?format=${encodeURIComponent(format)}` : base;
+  }
+
+  /**
+   * 下载配置文档：fetch → blob；由 UI 用 a[download] 触发浏览器保存。
+   * @returns {Promise<{blob:Blob, filename:string, size:number}>}
+   */
+  async downloadArtifact(id, { format = null, timeoutMs = 20000 } = {}) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const response = await fetch(this.artifactUrl(id, { format }), {
+        signal: controller.signal,
+        headers: { Accept: 'text/markdown, text/plain, application/octet-stream' },
+      });
+      if (!response.ok) {
+        if (response.status === 404) {
+          throw new AgentError('配置文档不存在（HTTP 404）', { kind: 'unsupported', status: 404 });
+        }
+        throw new AgentError(`下载配置文档失败（HTTP ${response.status}）`, {
+          kind: 'http',
+          status: response.status,
+        });
+      }
+      const disposition = response.headers.get('content-disposition') || '';
+      const filenameMatch = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(disposition);
+      const blob = await response.blob();
+      return {
+        blob,
+        filename: filenameMatch ? decodeURIComponent(filenameMatch[1].trim()) : '',
+        size: blob.size,
+      };
+    } catch (error) {
+      if (error instanceof AgentError) throw error;
+      if (error?.name === 'AbortError') {
+        throw new AgentError('下载配置文档超时，请稍后重试', { kind: 'timeout' });
+      }
+      throw new AgentError(`下载配置文档失败：${error?.message || error}`, { kind: 'offline' });
+    } finally {
+      clearTimeout(timer);
+    }
   }
 }

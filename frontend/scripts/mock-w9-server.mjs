@@ -40,6 +40,63 @@ function seedState() {
     w15Mode: 'ok',
     // W16：通知配置接口模拟模式（ok / config404，由 /__mock/notify_mode 切换）
     notifyMode: 'ok',
+    // W17：配置文档 artifact 模拟模式（ok / 404，由 /__mock/artifact_mode 切换）
+    artifactMode: 'ok',
+    artifactDownloads: [],
+    artifacts: {
+      'art-device-config-ss-2961': {
+        id: 'art-device-config-ss-2961',
+        kind: 'device_config',
+        title: '宿舍楼新增 SW-SS-2961 配置文档',
+        filename: 'SW-SS-2961-config.md',
+        content_type: 'text/markdown; charset=utf-8',
+        size: 980,
+        content: [
+          '# SW-SS-2961 接入交换机配置文档',
+          '',
+          '- 设备：SW-SS-2961（宿舍楼，VLAN 40）',
+          '- 管理地址：192.168.40.11/24',
+          '- 默认网关：192.168.40.1',
+          '',
+          '## 配置命令',
+          '',
+          '```cisco',
+          'enable',
+          'configure terminal',
+          'hostname SW-SS-2961',
+          'interface vlan 40',
+          'ip address 192.168.40.11 255.255.255.0',
+          'exit',
+          'ip default-gateway 192.168.40.1',
+          'end',
+          'write memory',
+          '```',
+          '',
+          '## 验证',
+          '',
+          '```bash',
+          'show ip interface brief',
+          'show vlan brief',
+          '```',
+        ].join('\n'),
+      },
+      'art-device-config-rollback': {
+        id: 'art-device-config-rollback',
+        kind: 'device_config',
+        title: 'SW-SS-2961 回滚脚本',
+        filename: 'SW-SS-2961-rollback.txt',
+        content_type: 'text/plain; charset=utf-8',
+        size: 230,
+        content: [
+          'SW-SS-2961 rollback script',
+          'configure terminal',
+          'no interface vlan 40',
+          'no hostname SW-SS-2961',
+          'end',
+          'write memory',
+        ].join('\n'),
+      },
+    },
     audit: [],
     alerts: [
       {
@@ -524,6 +581,18 @@ function buildMockAnswer(question = '') {
     actions: Object.values(state.actions).map((action) => ({ ...action })),
     citations: ragHits,
   };
+}
+
+// W17：按问题生成 artifact 列表（加设备类问题返回 2 个配置文档）
+function mockArtifactsForQuestion(question = '') {
+  if (!/宿舍楼|2960|接入交换机/.test(question)) return [];
+  return Object.values(state.artifacts).map(({ id, kind, title, filename, size }) => ({
+    id,
+    kind,
+    title,
+    filename,
+    size,
+  }));
 }
 
 function buildMockTrace(question, answer, citations, actionsCount = 0) {
@@ -1173,6 +1242,42 @@ const agentServer = createServer(async (req, res) => {
     json(res, 200, w15RagReport());
     return;
   }
+  // W17：配置文档 artifact 模拟（下载接口 + 测试控制）
+  if (path === '/__mock/artifact_mode' && req.method === 'POST') {
+    const payload = await readBody(req);
+    state.artifactMode = payload.mode === '404' ? '404' : 'ok';
+    json(res, 200, { ok: true, mode: state.artifactMode });
+    return;
+  }
+  if (path === '/__mock/artifact_downloads' && req.method === 'GET') {
+    json(res, 200, { count: state.artifactDownloads.length, ids: state.artifactDownloads.slice(-10) });
+    return;
+  }
+  const artifactMatch = path.match(/^\/api\/artifacts\/([^/]+)$/);
+  if (artifactMatch) {
+    const artifactId = decodeURIComponent(artifactMatch[1]);
+    const artifact = state.artifacts[artifactId];
+    if (state.artifactMode === '404' || !artifact) {
+      json(res, 404, { detail: 'artifact 不存在（mock）' });
+      return;
+    }
+    state.artifactDownloads.push(artifactId);
+    const format = url.searchParams.get('format');
+    const body = format === 'txt' ? artifact.content : artifact.content;
+    const contentType =
+      format === 'txt'
+        ? 'text/plain; charset=utf-8'
+        : artifact.content_type || 'text/markdown; charset=utf-8';
+    res.writeHead(200, {
+      'Content-Type': contentType,
+      'Content-Length': Buffer.byteLength(body),
+      'Content-Disposition': `attachment; filename="${artifact.filename}"`,
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Expose-Headers': 'Content-Disposition, Content-Length',
+    });
+    res.end(body);
+    return;
+  }
   if (path === '/api/chat' && req.method === 'POST') {
     const payload = await readBody(req);
     const question = String(payload.question || '');
@@ -1191,6 +1296,7 @@ const agentServer = createServer(async (req, res) => {
     const built = buildMockAnswer(question);
     const actions = built.actions;
     const citations = built.citations;
+    const artifacts = mockArtifactsForQuestion(question);
     const trace = buildMockTrace(question, built.answer, citations, actions.length);
     conversation.messages.push(
       { role: 'user', content: question, created_at: NOW() },
@@ -1198,7 +1304,7 @@ const agentServer = createServer(async (req, res) => {
         role: 'assistant',
         content: built.answer,
         created_at: NOW(),
-        meta: { actions, citations },
+        meta: { actions, citations, artifacts },
       },
     );
     conversation.updated_at = NOW();
@@ -1208,6 +1314,7 @@ const agentServer = createServer(async (req, res) => {
       conversation_id: conversationId,
       actions,
       citations,
+      artifacts,
       provider: 'mock',
       model: 'mock-rules',
       elapsed_ms: 86,
@@ -1237,6 +1344,7 @@ const agentServer = createServer(async (req, res) => {
     const built = buildMockAnswer(question);
     const actions = built.actions;
     const citations = built.citations;
+    const artifacts = mockArtifactsForQuestion(question);
     const trace = buildMockTrace(question, built.answer, citations, actions.length);
     conversation.messages.push(
       { role: 'user', content: question, created_at: NOW() },
@@ -1244,7 +1352,7 @@ const agentServer = createServer(async (req, res) => {
         role: 'assistant',
         content: built.answer,
         created_at: NOW(),
-        meta: { actions, citations, streaming: true },
+        meta: { actions, citations, artifacts, streaming: true },
       },
     );
     conversation.updated_at = NOW();
@@ -1306,6 +1414,7 @@ const agentServer = createServer(async (req, res) => {
       conversation_id: conversationId,
       actions,
       citations,
+      artifacts,
       provider: 'mock',
       model: 'mock-rules',
     });

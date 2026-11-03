@@ -24,10 +24,16 @@ W16 新增 **飞书通知设置对话框**：顶部「告警通知」stat 齿轮
 恢复通知、启用开关）+【保存并测试】【仅测试】【取消】；URL 不回显、不打印控制台；
 配置接口未就绪时优雅降级。
 
+W17 新增 **配置文档 artifact 下载 + CLI 一键复制**：AI 回答（普通/SSE 流式 done/历史会话）若带
+`artifacts[]`，在底部渲染「📄 下载配置文档：filename」按钮（可多个，fetch→blob→a[download]，
+失败 toast）；Markdown 的 `cisco/bash` 等围栏代码块右上角增加「复制」按钮
+（navigator.clipboard + textarea fallback，toast「已复制」），不改变原有渲染与 XSS 转义。
+
 - 前端技术栈：Vite 8 + 原生 ES Module + Three.js 0.186 + OrbitControls
 - 数据接入：REST 快照（首屏 / 兜底轮询）+ WebSocket `/ws` 实时推送（断线自动重连）+ 场景版本轮询（4s）
 - AI 接入：`POST /api/chat`（非流式兜底）/ **`POST /api/chat/stream`（SSE 流式）**；
-  真实模型单次 20~40s，前端超时 120s；支持 actions[] 与 RAG citations
+  真实模型单次 20~40s，前端超时 120s；支持 actions[]、RAG citations 与 artifacts[]
+- 配置文档下载：`GET {AGENT_BASE}/api/artifacts/{id}`（支持 `?format=txt`；前端 fetch→blob 保存）
 - 可观测性：`GET /api/traces`、`GET /api/traces/{id}`、`GET /api/metrics/agent`、`GET /api/rag/report`
   （懒加载，仅打开页签时请求）
 - 通知配置：`GET /api/notify/status` + `POST /api/notify/config` + `POST /api/notify/test`
@@ -64,6 +70,7 @@ frontend/
 │  ├─ screenshot-w15-observability.png # W15：可观测性（指标卡/trace 展开/RAG 评测卡）
 │  ├─ notify-settings.png         # W16：飞书通知设置对话框（状态区/表单/保存并测试）
 │  ├─ notify-settings-live.png    # W16：真实后端 live 保存并测试成功（脱敏 URL / HUD 同步）
+│  ├─ device-config-artifact.png  # W17：AI 回答配置文档下载按钮 + CLI 代码块复制按钮（已复制）
 │  ├─ ai-panel-expanded.png       # W16：AI 对话框放大态（1080px 浮层 + 更大字号/输入框）
 │  ├─ screenshot-ai-offline.png   # Agent 离线降级（不影响 3D 大屏）
 │  ├─ screenshot-demo.png         # 后端离线 + 演示数据模式
@@ -345,6 +352,23 @@ npm run dev -- --port 5173
 - **降级**：`POST /api/notify/config` 404/不可用时对话框内显示「通知配置接口未就绪…配置未保存」
   （warn 样式 + toast），对话框保留可继续查看状态/测试；不产生运行时错误。
 
+### W17：配置文档 artifact 下载 + CLI 一键复制（task-35/36）
+
+- **artifact 下载按钮**：`POST /api/chat` 与 SSE `done` 事件新增 `artifacts:[{id,kind,title,filename,size}]`；
+  回答底部渲染「📎 Agent 生成的配置文档」+ 每个 artifact 一个「📄 下载配置文档：filename」按钮
+  （含文件大小）；按钮点击 `fetch({AGENT_BASE}/api/artifacts/{id}?format=txt)` → `blob` →
+  `a[download=filename]` 触发浏览器下载，成功 toast「已开始下载」、失败 toast「下载配置文档失败」；
+  多个 artifact 全部渲染；**历史会话**从 `message.meta.artifacts` 恢复按钮，重载后仍可下载；
+- **CLI 一键复制**：Markdown 渲染器的围栏代码块包一层 `.md-code-wrap`，右上角渲染「复制」按钮
+  （`pre` 内代码已 HTML 转义，XSS 安全不变）；点击 `navigator.clipboard.writeText(text)`，
+  无权限/失败时 fallback `textarea + document.execCommand('copy')`；成功 toast「已复制」、
+  按钮短暂显示「已复制」；失败提示手动复制；长代码块仍可横向滚动；
+- **流式兼容**：流式过程中仍用轻量文本渲染，完成时用 done 事件的 artifacts 渲染最终内容；
+  RAG 角标 / actions / trace / 参考知识等既有渲染不变；
+- **mock 测试**：`/api/chat` 与流式 done 对「宿舍楼/2960/接入交换机」问题返回 2 个 artifact；
+  `GET /api/artifacts/{id}` 返回真实文件体（Content-Disposition + CORS，支持 `?format=txt`）；
+  `/__mock/artifact_mode`（ok/404）与 `/__mock/artifact_downloads`（下载计数）供 smoke 断言。
+
 ## 数据接入与真实性说明
 
 | 页面内容 | 数据来源 |
@@ -368,6 +392,7 @@ npm run dev -- --port 5173
 | W10 告警根因分组 | `GET /api/alerts/groups?state=active`（组/成员/suppressed_by） |
 | W10 通知状态 | `GET /api/notify/status`、`POST /api/notify/test` |
 | W16 通知配置 | `POST /api/notify/config {enabled?,webhook_url?,webhook_type?,min_severity?,on_recovery?}` → `{ok,status}`（task-33，未上线时前端降级）；status 新增 `on_recovery` / `last_payload_kind` / `failed_count` |
+| W17 配置文档 artifact | `POST /api/chat` / SSE `done` → `artifacts:[{id,kind,title,filename,size}]`；`GET {AGENT_BASE}/api/artifacts/{id}?format=txt` 下载（Content-Disposition） |
 | W12 流式问答 | `POST /api/chat/stream`（SSE：meta/status/tool/token/action/done/error；失败回退 `POST /api/chat`） |
 | W12 RAG 引用 | `trace.retrieval.hits[{id,title,source,score}]` + 回答文本 `[K1]/[K2]` 标记 |
 | W15 trace 查询 | `GET /api/traces?conversation_id=&limit=`、`GET /api/traces/{trace_id}`（Agent :8100） |
@@ -515,18 +540,19 @@ Agent action 卡片（危险红色 + 取消 + 确认执行结果）、历史会�
 
 | 用例 | 结果 | 关键数据 |
 |---|---|---|
-| `npm run build` | PASS | 29 modules，gzip JS 201.5 kB / CSS 10.0 kB |
+| `npm run build` | PASS | 29 modules，gzip JS 202.9 kB / CSS 10.4 kB |
 | `npm run verify:devices` | PASS | 5 设备 + 6 主机与后端一致（NC 在线 12 标记；本次 NC 离线 11 标记，脚本按实时数据校验） |
 | `npm run smoke`（live） | PASS | 首帧 ~0.7s；45 渲染对象；真实后端 `/api/scene` v3（4 栋/12 设备）配置驱动校验通过；W3/W7.1 断言通过（当前 NC 离线/采集陈旧，页面正确显示「后端采集陈旧」tooltip，断言兼容陈旧态）；AI 真实回答（Agent 流式接口未上线 → **W12 自动回退普通模式**，trace plan[] 正常）；live action 卡片（场景新增设备取消、危险链路仅取消，`/api/scene` v3 / pending=0 未变、无清空审计）；W10：通知状态与后端一致、NC 离线时 `/api/path-trace` 返回中文错误且前端正确降级（无 3D 残留/运行时错误）、根因分组空态正常；**W15：Agent 指标/trace/RAG 接口均未上线（404）→ 页签显示「可观测性服务未就绪」、指标卡「—」、trace 空、RAG 隐藏，无运行时错误** |
 | `npm run smoke`（demo） | PASS | 12 标记、2 个告警脉冲、演示水印/离线提示正确 |
 | `npm run smoke`（ai-offline） | PASS | 降级提示正确、AI 控件禁用、3D 场景 5+6 标记与后端一致 |
-| `npm run smoke:w9` | PASS | 动态 5 栋楼 + pending 设备、自动发现高亮、确认/撤销、告警删除→撤销→恢复、静默、清空已恢复、2 个 action 卡片、历史会话加载/删除/清空；**W10**：路径 4 跳完整 + 3 跳断点（红 ✕）+ 清除、根因分组（链路中断/成员 3/被抑制 2/suppressed_by 灰显 + 操作保留）、通知已启用 + 测试发送；**W12**：流式状态条/3 个工具 chip/49 个 token chunk（290 字，与 done.answer 完全一致）/61 个 SSE 事件顺序正确、完成后 action+trace 不变、3 条 RAG 引用（6 个角标/点击高亮）、停止生成（94 字部分内容 + 「已停止生成」且无 done）、SSE 404 回退普通模式并提示；**W15**：指标卡（546 ms / 12.5 % / 26.6 k）、20 条 trace 与红色失败标识、展开 3 条事件、仅当前会话过滤、RAG 4 指标（recall@5 86% / MRR 0.74 / 引用准确率 91% / faithfulness 88%）、三接口 404 降级与恢复；**W16**：齿轮入口打开「飞书通知设置」→ 8 项状态回填（启用/最近发送/错误/成功失败/负载/恢复通知/脱敏 Webhook）→ 表单（URL password/类型/等级/恢复/启用）→ 保存并测试（mock 后端写入 feishu/warning/on_recovery，status 脱敏，页面 DOM 无明文 URL，顶部 stat 刷新「飞书 · 已发送 N 次 · 恢复通知」）→ 仅测试 sent_count 递增 → 取消关闭 → 配置接口 404 降级警告且无运行时错误，全部通过 |
+| `npm run smoke:w9` | PASS | 动态 5 栋楼 + pending 设备、自动发现高亮、确认/撤销、告警删除→撤销→恢复、静默、清空已恢复、2 个 action 卡片、历史会话加载/删除/清空；**W10**：路径 4 跳完整 + 3 跳断点（红 ✕）+ 清除、根因分组（链路中断/成员 3/被抑制 2/suppressed_by 灰显 + 操作保留）、通知已启用 + 测试发送；**W12**：流式状态条/3 个工具 chip/49 个 token chunk（290 字，与 done.answer 完全一致）/61 个 SSE 事件顺序正确、完成后 action+trace 不变、3 条 RAG 引用（6 个角标/点击高亮）、停止生成（94 字部分内容 + 「已停止生成」且无 done）、SSE 404 回退普通模式并提示；**W17**：配置文档 artifact 下载（2 个按钮/点击下载/404 失败兜底）+ CLI 代码块复制（主路径/fallback/历史会话恢复）；**W15**：指标卡（546 ms / 12.5 % / 26.6 k）、20 条 trace 与红色失败标识、展开 3 条事件、仅当前会话过滤、RAG 4 指标（recall@5 86% / MRR 0.74 / 引用准确率 91% / faithfulness 88%）、三接口 404 降级与恢复；**W16**：齿轮入口打开「飞书通知设置」→ 8 项状态回填（启用/最近发送/错误/成功失败/负载/恢复通知/脱敏 Webhook）→ 表单（URL password/类型/等级/恢复/启用）→ 保存并测试（mock 后端写入 feishu/warning/on_recovery，status 脱敏，页面 DOM 无明文 URL，顶部 stat 刷新「飞书 · 已发送 N 次 · 恢复通知」）→ 仅测试 sent_count 递增 → 取消关闭 → 配置接口 404 降级警告且无运行时错误，全部通过 |
 | 真实后端 UI 删除+撤销 | PASS | 通过页面删除 1 条已恢复告警并撤销：`/api/audit` 记录 `alert.delete` / `alert.restore`（operator=web-ui） |
 | 真实 W10 联调 | PASS | 网络正常时 `/api/path-trace` 返回完整 3 跳并渲染 3D 发光路径；本次 NC 离线时返回中文错误（「NC 退避中…」），前端正确降级不残留路径；`/api/notify/status` 正常；`/api/alerts/groups` 空态正常 |
 | 真实 W12 回退 | PASS | 真实 Agent `/api/chat/stream` 尚未上线（404）→ 自动回退 `/api/chat`，页面显示「⚠ 流式接口不可用…已自动切换普通模式」，回答/trace 正常，无运行时错误 |
 | 真实 W15 降级 | PASS | Agent `/api/metrics/agent`、`/api/traces`、`/api/rag/report` 均未上线（404）→ 可观测性页签显示降级提示、指标卡「—」、trace 空、RAG 卡隐藏，无运行时错误；接口上线后前端自动展示（smoke live 已就绪分支）。测试中修正了 smoke 对「NC 离线/采集陈旧」与「路径追踪返回 ok:false」两种真实环境变化的兼容断言 |
 | 真实 W16 联调（只读部分） | PASS | 5173 真实后端：齿轮打开「飞书通知设置」，`GET /api/notify/status` 回填 8 项状态（启 Enabled/通用 Webhook/critical/最近发送/成功失败/脱敏 URL），URL password 空值 + 脱敏占位（真实状态返回明文时页面 DOM 也不出现明文）、飞书接入帮助完整、Esc 关闭、无运行时/JS 错误。**保存配置等待 task-33**（当前 `/api/notify/config` 仍 404，前端已实现降级提示）；NOTE：早期探测时对真实 `/api/notify/test` 调用过一次（sent_count +1，未改配置） |
 | 真实 W16 live 联调（后端就绪后） | PASS | 真实 8000 + 5173：回填 feishu/critical/on_recovery/masked URL/最近发送/sent_count；【仅测试】发送真实飞书测试卡 sent 4→5；【保存并测试】URL 留空（不修改）→ config 200、`notify_config.json` 持久化字段保持、测试发送 sent 5→6、HUD「飞书 · 已发送 6 次 · 恢复通知」；无 404/未就绪、DOM 无明文 URL、console 无泄漏、无 JS 错误；截图 `notify-settings-live.png` |
+| W17 artifact / 复制（mock） | PASS | mock 契约：问「宿舍楼加 2960」→ 回答渲染 2 个「📄 下载配置文档」按钮（config.md 980B / rollback.txt 230B）+ cisco 代码块「复制」按钮；点击下载触发 `GET /api/artifacts/{id}`（mock 计数 0→1）并 toast 已开始下载；复制主路径（stub clipboard，101 字符含 configure terminal）与 clipboard 不可用 fallback（textarea+execCommand）均成功 toast 已复制；artifact 404 → toast 下载失败、无运行时错误；历史会话重载后恢复 4 个下载按钮 + 4 个复制按钮；截图 `device-config-artifact.png`。**live 联调（agent task-35 就绪后）待 lead 统一验证**：真实问「实训楼加一台 2960」→ 出现下载按钮 |
 
 > 当前后端真实数据恰好带 1 条 `stale_source=true` 的 PC-JX1 issue（NC 记录滞后、数据源已恢复），
 > 冒烟以此做真实数据断言；若后端无 stale issue，该组断言会输出 `[INFO]` 跳过，不影响其余检查。
@@ -587,6 +613,9 @@ Agent action 卡片（危险红色 + 取消 + 确认执行结果）、历史会�
   成功提示 + 取消/仅测试按钮 + 飞书群机器人获取步骤帮助。
 - `docs/notify-settings-live.png`：W16 **真实后端 live** 保存并测试成功（feishu / critical / 恢复通知开启 /
   脱敏 Webhook / 成功 6 次 / 最近负载测试消息 / HUD 同步）。
+- `docs/device-config-artifact.png`：W17 AI 回答底部「📎 Agent 生成的配置文档」+ 2 个「📄 下载配置文档」
+  按钮（config.md 980 B / rollback.txt 230 B）+ Markdown cisco 代码块右上角「复制」按钮（已复制状态）+
+  底部「已复制」toast。
 - `docs/screenshot-demo.png`：后端离线 + 演示数据模式（水印、离线提示、活跃/已恢复告警、脉冲光环）。
 
 > 截图为 headless Edge 在 1600×900 窗口下的实际渲染结果（页面视口约 1570×805，无人工修图）。
@@ -637,6 +666,8 @@ Agent action 卡片（危险红色 + 取消 + 确认执行结果）、历史会�
 | 可观测性页签显示「服务未就绪」/指标卡「—」 | Agent 的 `/api/metrics/agent`、`/api/traces`、`/api/rag/report` 尚未上线（404）；仅该页签降级，其它功能正常，接口上线后点「刷新」即可。 |
 | 通知设置里保存提示「通知配置接口未就绪」 | 后端 `POST /api/notify/config`（task-33）未上线；当前可查看状态/仅测试，接口上线后保存即生效。 |
 | 通知设置里看不到完整 Webhook | 按安全设计只显示脱敏占位（`origin/路径/****末4位`），输入框留空表示保持当前地址；URL 不回显、不打印控制台。 |
+| AI 回答没有「下载配置文档」按钮 | 本次回答没有 artifacts（通常只有「加设备/生成配置」类问题才会生成）；接口/历史消息里有 artifacts 时会自动显示；下载失败会 toast「下载配置文档失败」。 |
+| 代码块没有「复制」按钮 / 复制失败 | 复制按钮只出现在 Markdown 围栏代码块（```cisco/```bash 等）右上角；浏览器禁止剪贴板且 fallback 也失败时会提示手动选择代码复制。 |
 | 可观测性 trace 列表为空 | `GET /api/traces` 无记录；勾选「仅当前会话」时若还没有 AI 会话会提示无法过滤；取消勾选可看全部。 |
 | RAG 评测卡不显示 | `/api/rag/report` 未就绪/404 时按设计隐藏；该卡只在有评测报告时展示。 |
 | 后端采集状态显示「陈旧」/路径追踪报 NC 错误 | NC（PT）离线或 Real World Access 关闭；后端会退避重试，恢复后告警/路径自动正常，前端已正确降级提示。 |

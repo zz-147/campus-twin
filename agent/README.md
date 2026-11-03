@@ -1,4 +1,4 @@
-# campus-twin AI 运维 Agent（W5-6 + W9 + W10 + W11 + W12 + W12.1 + W12.2 + W13 + W15 + W15-P1）
+# campus-twin AI 运维 Agent（W5-6 + W9 + W10 + W11 + W12 + W12.1 + W12.2 + W13 + W15 + W15-P1 + W16）
 
 校园网数字孪生平台的 AI 运维 Agent：
 
@@ -333,9 +333,9 @@ mock baseline（当前评测集，`report.json` 可复查）：
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| `POST` | `/api/chat` | `{question, conversation_id?, provider?, model?}` → `{answer, trace, provider, model, elapsed_ms, conversation_id, actions[]}`（LangGraph 时内部跑图；interrupt 时返回 pending actions） |
+| `POST` | `/api/chat` | `{question, conversation_id?, provider?, model?}` → `{answer, trace, provider, model, elapsed_ms, conversation_id, actions[], artifacts[]}`（LangGraph 时内部跑图；interrupt 时返回 pending actions） |
 | `POST` | `/api/chat/stream` | W12 SSE（`text/event-stream`）：meta / status / tool / token / action / done / error；非流式 `/api/chat` 保留 |
-| `GET` | `/api/health` | 服务/provider/后端/W9-W15 健康状态（含 `engine`、`graph`、`streaming`、`rag`、`mcp_bridge`、`observability`，不含 key） |
+| `GET` | `/api/health` | 服务/provider/后端/W9-W16 健康状态（含 `engine`、`graph`、`streaming`、`rag`、`mcp_bridge`、`observability`、`artifacts`，不含 key） |
 | `GET` | `/api/providers` | provider 能力清单与切换方式 |
 | `GET` | `/api/roles` | 1 主 + 4 子 Agent、工具白名单、action 类型、归属推断规则、图节点、RAG/SSE 能力 |
 | `GET` | `/api/conversations` | 会话列表（id/title/时间/消息数/预览） |
@@ -352,6 +352,7 @@ mock baseline（当前评测集，`report.json` 可复查）：
 | `GET` | `/api/traces/{trace_id}` | 单条 trace 汇总 + 事件序列（`summary/steps/events`，不存在 404） |
 | `GET` | `/api/metrics/agent` | 平均延迟/工具错误率/token/calls/by_day/by_model |
 | `GET` | `/api/rag/report` | W15 RAG 评测指标（未生成时 404，前端隐藏面板） |
+| `GET` | `/api/artifacts/{id}` | W16 配置文档下载（`text/markdown` + `Content-Disposition`；`?format=txt` 纯文本；不存在 404） |
 | `GET` | `/docs` | OpenAPI 文档 |
 
 ---
@@ -678,6 +679,17 @@ python -m app.agent.recovery_demo   # start 子进程 → 进程退出 → resum
 - 与 Langfuse 的差异：当前是**自建最小 trace**，无外网/账号依赖；字段保持通用，
   后续可加 exporter 上报 Langfuse/OTel（`meta` 可扩展），不改 Agent 主流程。
 
+### 7.12 W16：设备接入配置文档 artifact（可下载）
+
+- 触发：onboarding 生成设备接入方案时，同步生成 Markdown 配置文档（设备信息/端口连线/完整 CLI/验证/撤销/注意事项）；
+  PC/服务器无 IOS CLI 时给 **PT GUI 步骤 + IP/掩码/网关/DNS**；文件名 `<hostname>_接入配置_<YYYYMMDD-HHMM>.md`。
+- 存储：`agent/data/artifacts/` + SQLite `artifacts(id, conversation_id, kind, title, filename, path, size, created_at)`；
+  `POST /api/chat` 响应新增 `artifacts:[{id,kind,title,filename,size}]`（无则 `[]`，向后兼容）；SSE `done` 事件同样带 `artifacts`。
+- 下载：`GET /api/artifacts/{id}` 返回 `text/markdown; charset=utf-8` + `Content-Disposition: attachment; filename*=UTF-8''...`；
+  `?format=txt` 返回 `text/plain`（去 Markdown 标记、保留代码内容）；不存在的 id 返回 404。
+- 安全：artifact id 随机不可猜、仅本机存储（`data/` 已 gitignore）；不含 API key；配置文档中的密码/密钥需现场替换；
+  生产如需按用户隔离，可在 `conversation_id` 上增加鉴权（当前单用户本地演示不做）。
+
 ---
 
 ## 八、安全约束
@@ -721,7 +733,8 @@ FastAPI 全部接口。
 
 | 项 | 命令 | 结果 |
 |---|---|---|
-| 单测 | `python -m pytest -q` | **277 passed**（离线） |
+| 单测 | `python -m pytest -q` | **291 passed**（离线） |
+| W16 artifact | `pytest tests/test_artifacts.py -q` | 6 项：Markdown 生成/存储去重/API 下载 200/404/txt/PC GUI/SSE artifacts |
 | W15-P1 可靠性 | `pytest tests/test_resilience.py -q` | 7 项：重试/熔断/幂等/脏数据/超大响应（本地 http.server 注入） |
 | W15-P1 恢复 | `python -m app.agent.recovery_demo` | start pid≠resume pid；paused_before/after=true、resumed=true、executed=true；报告 `app/agent/eval/recovery_report.json` |
 | W15-P1 trace API | `pytest tests/test_observability.py -q` | trace_events 写入/查询/聚合；`/api/traces`、`/api/traces/{id}`、`/api/metrics/agent`、`/api/rag/report` 契约通过 |

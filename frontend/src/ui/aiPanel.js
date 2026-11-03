@@ -167,6 +167,18 @@ export class AiPanel {
 
     // W9：AI 回答里的 action 确认卡片（确认执行 / 取消）
     this.el.messages?.addEventListener('click', (event) => {
+      // W17：代码块右上角「复制」按钮（CLI 一键复制）
+      const copyButton = event.target.closest('.md-copy-btn');
+      if (copyButton) {
+        this._copyCodeBlock(copyButton);
+        return;
+      }
+      // W17：配置文档 artifact 下载按钮
+      const artifactButton = event.target.closest('.ai-artifact-btn');
+      if (artifactButton) {
+        this._downloadArtifact(artifactButton);
+        return;
+      }
       // W12：点击 [K1] 角标 → 展开/定位「参考知识」对应条目
       const citeButton = event.target.closest('.cite-ref');
       if (citeButton) {
@@ -632,6 +644,7 @@ export class AiPanel {
       elapsedMs,
       actions = [],
       citations = [],
+      artifacts = [],
       streamFallback = false,
     },
     { fallbackNote = '', extraNote = '' } = {},
@@ -659,6 +672,7 @@ export class AiPanel {
       ${this._renderCitations(citations)}
       ${this._renderActionCards(actions)}
       ${this._renderTrace(trace, { provider, model, elapsedMs })}
+      ${this._renderArtifacts(artifacts)}
       <div class="ai-answer-foot">AI 生成内容仅供运维排障参考；危险操作需人工确认后执行。</div>`;
   }
 
@@ -841,6 +855,132 @@ export class AiPanel {
       .join('')}</div>`;
   }
 
+  // ------------------------------------------------------------------ //
+  // W17：配置文档 artifact 下载 + CLI 代码块一键复制
+  // ------------------------------------------------------------------ //
+  /** 回答底部：📄 下载配置文档按钮（支持多个；历史会话从 meta.artifacts 恢复） */
+  _renderArtifacts(artifacts = []) {
+    const list = (Array.isArray(artifacts) ? artifacts : [])
+      .map((artifact) => {
+        if (!artifact || typeof artifact !== 'object') return null;
+        const id = String(artifact.id || '').trim();
+        if (!id) return null;
+        const size = Number(artifact.size);
+        return {
+          id,
+          filename: String(artifact.filename || 'config.txt'),
+          title: String(artifact.title || ''),
+          size: Number.isFinite(size) ? size : null,
+        };
+      })
+      .filter(Boolean);
+    if (!list.length) return '';
+    return `<div class="ai-artifacts">
+      <div class="ai-artifacts-title">📎 Agent 生成的配置文档</div>
+      ${list
+        .map(
+          (artifact) => `<button type="button" class="ai-artifact-btn"
+            data-artifact-id="${escapeHtml(artifact.id)}"
+            data-artifact-filename="${escapeHtml(artifact.filename)}"
+            title="${escapeHtml(artifact.title || artifact.filename)}">
+            <span class="ai-artifact-icon" aria-hidden="true">📄</span>
+            <span class="ai-artifact-label">下载配置文档：${escapeHtml(artifact.filename)}</span>
+            ${artifact.size !== null ? `<span class="ai-artifact-size">${escapeHtml(this._formatFileSize(artifact.size))}</span>` : ''}
+          </button>`,
+        )
+        .join('')}
+    </div>`;
+  }
+
+  _formatFileSize(bytes) {
+    const size = Number(bytes);
+    if (!Number.isFinite(size) || size < 0) return '';
+    if (size < 1024) return `${size} B`;
+    if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} kB`;
+    return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+  }
+
+  async _downloadArtifact(button) {
+    if (!button || button.disabled) return;
+    const artifactId = button.dataset.artifactId || '';
+    const filename = button.dataset.artifactFilename || 'config.txt';
+    const label = button.querySelector('.ai-artifact-label');
+    const originalLabel = label ? label.textContent : '';
+    button.disabled = true;
+    button.classList.add('downloading');
+    if (label) label.textContent = '正在下载…';
+    try {
+      const { blob } = await this.agent.downloadArtifact(artifactId, { format: 'txt' });
+      const objectUrl = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = objectUrl;
+      anchor.download = filename;
+      anchor.rel = 'noopener';
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      setTimeout(() => URL.revokeObjectURL(objectUrl), 10000);
+      this._toast(`已开始下载 ${filename}`);
+    } catch (error) {
+      this._toast(`下载配置文档失败：${error?.message || error}`, 'error');
+    } finally {
+      button.disabled = false;
+      button.classList.remove('downloading');
+      if (label) label.textContent = originalLabel;
+    }
+  }
+
+  /** 代码块右上角「复制」：clipboard API + textarea fallback */
+  async _copyCodeBlock(button) {
+    if (!button || button.disabled) return;
+    const wrap = button.closest('.md-code-wrap');
+    const code = wrap?.querySelector('pre code') || wrap?.querySelector('code');
+    const text = code?.textContent || '';
+    if (!text) {
+      this._toast('没有可复制的代码', 'warn');
+      return;
+    }
+    button.disabled = true;
+    const copied = await this._copyText(text);
+    button.disabled = false;
+    if (!copied) {
+      this._toast('复制失败，请手动选择代码复制', 'error');
+      return;
+    }
+    button.textContent = '已复制';
+    button.classList.add('copied');
+    this._toast('已复制');
+    setTimeout(() => {
+      button.textContent = '复制';
+      button.classList.remove('copied');
+    }, 1800);
+  }
+
+  async _copyText(text) {
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+        return true;
+      }
+    } catch {
+      /* 无剪贴板权限时走 fallback */
+    }
+    try {
+      const textarea = document.createElement('textarea');
+      textarea.value = text;
+      textarea.setAttribute('readonly', '');
+      textarea.style.cssText = 'position:fixed;top:-1000px;left:-1000px;opacity:0';
+      document.body.appendChild(textarea);
+      textarea.select();
+      textarea.setSelectionRange(0, textarea.value.length);
+      const ok = document.execCommand('copy');
+      textarea.remove();
+      return ok;
+    } catch {
+      return false;
+    }
+  }
+
   _findActionCard(actionId) {
     for (const card of this.el.messages?.querySelectorAll('.ai-action-card') || []) {
       if (card.dataset.actionId === String(actionId)) return card;
@@ -991,6 +1131,7 @@ export class AiPanel {
       }
       const actions = Array.isArray(message.meta?.actions) ? message.meta.actions : [];
       const citations = Array.isArray(message.meta?.citations) ? message.meta.citations : [];
+      const artifacts = Array.isArray(message.meta?.artifacts) ? message.meta.artifacts : [];
       item.innerHTML = `
         <div class="ai-answer-head">
           <span class="ai-answer-role">AI 分析</span>
@@ -999,7 +1140,8 @@ export class AiPanel {
         </div>
         <div class="ai-markdown">${this._injectCitationBadges(markdownHtml, citations)}</div>
         ${this._renderCitations(citations)}
-        ${this._renderActionCards(actions)}`;
+        ${this._renderActionCards(actions)}
+        ${this._renderArtifacts(artifacts)}`;
       this.el.messages.appendChild(item);
     }
     this._scrollToBottom();
