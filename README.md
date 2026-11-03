@@ -14,6 +14,12 @@
 
 ---
 
+<p align="center">
+  <img src="docs/作品集截图/15-系统架构图.png" alt="校园网络数字孪生运维平台 · 系统架构" width="920">
+</p>
+
+> 上图：真实系统架构（4 个服务 + PT Network Controller 数据源）。下方为 Mermaid 可交互版本与文字说明。
+
 ## 系统架构（4 个服务 + 1 个仿真源）
 
 ```
